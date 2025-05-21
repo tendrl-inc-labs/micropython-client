@@ -7,7 +7,7 @@ A simple, lightweight database for MicroPython devices.
 1. Copy the `MicroTetherDB.py` file to your MicroPython device
 2. Import the database class:
 ```python
-from MicroTetherDB import DB
+from MicroTetherDB import MicroTetherDB
 ```
 
 ## Usage
@@ -16,7 +16,7 @@ from MicroTetherDB import DB
 
 ```python
 # Create a new database
-db = DB("my_database.db")
+db = MicroTetherDB("my_database.db")
 
 # Store data
 db["key"] = "value"
@@ -87,10 +87,10 @@ with db.lock():
 ## Example
 
 ```python
-from MicroTetherDB import DB
+from MicroTetherDB import MicroTetherDB
 
 # Create or open database
-db = DB("my_database.db")
+db = MicroTetherDB("my_database.db")
 
 try:
     # Store some data

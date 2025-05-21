@@ -1,7 +1,7 @@
-from tendrl.lib.microtetherdb.MicroTetherDB import DB, DBLock
+from .MicroTetherDB import MicroTetherDB, DBLock
 
 __version__ = "0.1.0"
 __all__ = [
-    'DB',  
+    'MicroTetherDB',
     'DBLock'
 ] 
