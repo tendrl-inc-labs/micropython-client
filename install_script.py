@@ -47,7 +47,7 @@ as config.json
 
 CONFIG_FILE = "/config.json"
 LIBRARY_CONFIG_FILE = "/lib/tendrl/config.json"
-CLIENT_REPO = "https://github.com/tendrl-inc-labs/micropython-client/main"
+CLIENT_REPO = "https://raw.githubusercontent.com/tendrl-inc-labs/micropython-client/main"
 MAX_WIFI_RETRIES = 3
 MAX_INSTALL_RETRIES = 3
 WIFI_RETRY_DELAY = 5  # seconds
@@ -152,8 +152,10 @@ def verify_installation():
         required_files = [
             "/lib/tendrl/__init__.py",
             "/lib/tendrl/client.py",
-            "/lib/tendrl/manifest.py",  # This should now be installed
-            "/lib/tendrl/config.json"   # Library config file
+            "/lib/tendrl/manifest.py",
+            "/lib/tendrl/config.json",
+            "/lib/tendrl/lib/microtetherdb/__init__.py",
+            "/lib/tendrl/lib/microtetherdb/MicroTetherDB.py"
         ]
 
         for file in required_files:
@@ -172,17 +174,6 @@ def ensure_directory_exists(path):
         os.mkdir(path)
     except:
         pass
-
-def move_file(src, dest):
-    """Move a file from src to dest."""
-    try:
-        with open(src, 'r') as f:
-            content = f.read()
-        with open(dest, 'w') as f:
-            f.write(content)
-        os.remove(src)
-    except Exception as e:
-        print(f"⚠️ Failed to move {src} to {dest}: {e}")
 
 def create_library_config():
     """Create the library config file with default settings if it doesn't exist."""
@@ -214,6 +205,12 @@ def ensure_required_directories():
 
         # Create /lib/tendrl directory if it doesn't exist
         ensure_directory_exists("/lib/tendrl")
+
+        # Create /lib/tendrl/lib directory if it doesn't exist
+        ensure_directory_exists("/lib/tendrl/lib")
+
+        # Create /lib/tendrl/lib/microtetherdb directory if it doesn't exist
+        ensure_directory_exists("/lib/tendrl/lib/microtetherdb")
 
         print("✅ Verified required directories")
         return True
