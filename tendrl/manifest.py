@@ -1,0 +1,17 @@
+metadata(version="0.1.0")
+
+include("tendrl")
+
+module("tendrl.__init__")
+module("tendrl.client")
+module("tendrl.config_manager")
+module("tendrl.lib.shutil")
+module("tendrl.lib.tetherdb.TetherDB")
+module("tendrl.lib.websockets")
+module("tendrl.network_manager")
+module("tendrl.queue_manager")
+module("tendrl.lib.tetherdb.__init__")
+module("tendrl.utils.auth")
+module("tendrl.utils.memory")
+module("tendrl.utils.util_helpers")
+module("tendrl.websocket_handler")

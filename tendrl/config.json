@@ -1,0 +1,8 @@
+{
+    "tendrl_version": "0.1.0",
+    "app_url": "https://app.tendrl.com",
+    "api_key": "",
+    "wifi_ssid":"",
+    "wifi_pw": "",
+    "reset": false
+}
