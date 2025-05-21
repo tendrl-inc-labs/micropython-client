@@ -19,7 +19,7 @@ except ImportError:
     ASYNCIO_AVAILABLE = False
 try:
     import btree
-    from tendrl.lib.tetherdb.TetherDB import DB
+    from tendrl.lib.microtetherdb.MicroTetherDB import MicroTetherDB
     BTREE_AVAILABLE = True
 except ImportError:
     BTREE_AVAILABLE = False
@@ -98,9 +98,9 @@ class Client:
             self._tasks = []
         if BTREE_AVAILABLE and managed:
             try:
-                self._db = DB("/lib/tendrl/tether.db", btree_pagesize=db_page_size)
+                self._db = MicroTetherDB("/lib/tendrl/tether.db", btree_pagesize=db_page_size)
                 if client_db:
-                    self._client_db = DB("/lib/tendrl/client_db.db",btree_pagesize=1024)
+                    self._client_db = MicroTetherDB("/lib/tendrl/client_db.db",btree_pagesize=1024)
             except Exception as e:
                 print(f"Storage initialization error: {e}")
         else:

@@ -47,7 +47,7 @@ as config.json
 
 CONFIG_FILE = "/config.json"
 LIBRARY_CONFIG_FILE = "/lib/tendrl/config.json"
-CLIENT_REPO = "https://raw.githubusercontent.com/tendrl-inc/micropython-sdk/main"
+CLIENT_REPO = "https://github.com/tendrl-inc-labs/micropython-client/main"
 MAX_WIFI_RETRIES = 3
 MAX_INSTALL_RETRIES = 3
 WIFI_RETRY_DELAY = 5  # seconds
@@ -231,7 +231,7 @@ def install_tendrl():
                 raise RuntimeError("Failed to create required directories")
 
             # Install using package.json with github: prefix
-            mip.install("github:tendrl-inc/micropython-sdk/package.json", target="/lib")
+            mip.install("github:tendrl-inc-labs/micropython-client/package.json", target="/lib")
 
             # Create the library config file
             if not create_library_config():
