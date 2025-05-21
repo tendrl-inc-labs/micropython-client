@@ -6,7 +6,7 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/tendrl-inc/micropython-sdk"
+        "url": "https://github.com/tendrl-inc-labs/micropython-client"
     },
     "files": [
         "tendrl/__init__.py",
@@ -30,20 +30,20 @@
         "version": ">=1.19.0"
     },
     "urls": [
-        ["tendrl/__init__.py", "github:tendrl-inc/micropython-sdk/tendrl/__init__.py"],
-        ["tendrl/client.py", "github:tendrl-inc/micropython-sdk/tendrl/client.py"],
-        ["tendrl/config_manager.py", "github:tendrl-inc/micropython-sdk/tendrl/config_manager.py"],
-        ["tendrl/network_manager.py", "github:tendrl-inc/micropython-sdk/tendrl/network_manager.py"],
-        ["tendrl/queue_manager.py", "github:tendrl-inc/micropython-sdk/tendrl/queue_manager.py"],
-        ["tendrl/websocket_handler.py", "github:tendrl-inc/micropython-sdk/tendrl/websocket_handler.py"],
-        ["tendrl/lib/shutil.py", "github:tendrl-inc/micropython-sdk/tendrl/lib/shutil.py"],
-        ["tendrl/lib/websockets.py", "github:tendrl-inc/micropython-sdk/tendrl/lib/websockets.py"],
-        ["tendrl/lib/tetherdb/__init__.py", "github:tendrl-inc/micropython-sdk/tendrl/lib/tetherdb/__init__.py"],
-        ["tendrl/lib/tetherdb/TetherDB.py", "github:tendrl-inc/micropython-sdk/tendrl/lib/tetherdb/TetherDB.py"],
-        ["tendrl/utils/__init__.py", "github:tendrl-inc/micropython-sdk/tendrl/utils/__init__.py"],
-        ["tendrl/utils/auth.py", "github:tendrl-inc/micropython-sdk/tendrl/utils/auth.py"],
-        ["tendrl/utils/memory.py", "github:tendrl-inc/micropython-sdk/tendrl/utils/memory.py"],
-        ["tendrl/utils/util_helpers.py", "github:tendrl-inc/micropython-sdk/tendrl/utils/util_helpers.py"],
-        ["tendrl/manifest.py", "github:tendrl-inc/micropython-sdk/tendrl/manifest.py"]
+        ["tendrl/__init__.py", "github:tendrl-inc-labs/micropython-client/tendrl/__init__.py"],
+        ["tendrl/client.py", "github:tendrl-inc-labs/micropython-client/tendrl/client.py"],
+        ["tendrl/config_manager.py", "github:tendrl-inc-labs/micropython-client/tendrl/config_manager.py"],
+        ["tendrl/network_manager.py", "github:tendrl-inc-labs/micropython-client/tendrl/network_manager.py"],
+        ["tendrl/queue_manager.py", "github:tendrl-inc-labs/micropython-client/tendrl/queue_manager.py"],
+        ["tendrl/websocket_handler.py", "github:tendrl-inc-labs/micropython-client/tendrl/websocket_handler.py"],
+        ["tendrl/lib/shutil.py", "github:tendrl-inc-labs/micropython-client/tendrl/lib/shutil.py"],
+        ["tendrl/lib/websockets.py", "github:tendrl-inc-labs/micropython-client/tendrl/lib/websockets.py"],
+        ["tendrl/lib/tetherdb/__init__.py", "github:tendrl-inc-labs/micropython-client/tendrl/lib/tetherdb/__init__.py"],
+        ["tendrl/lib/tetherdb/TetherDB.py", "github:tendrl-inc-labs/micropython-client/tendrl/lib/tetherdb/TetherDB.py"],
+        ["tendrl/utils/__init__.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/__init__.py"],
+        ["tendrl/utils/auth.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/auth.py"],
+        ["tendrl/utils/memory.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/memory.py"],
+        ["tendrl/utils/util_helpers.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/util_helpers.py"],
+        ["tendrl/manifest.py", "github:tendrl-inc-labs/micropython-client/tendrl/manifest.py"]
     ]
 } 

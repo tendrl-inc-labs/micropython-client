@@ -28,7 +28,7 @@ Before installing the Tendrl SDK, you need to have MicroPython installed on your
 1. Download the install script from our GitHub repository:
 
 ```python
-# https://github.com/tendrl-inc/micropython-sdk/blob/main/install_script.py
+# https://github.com/tendrl-inc-labs/micropython-client/blob/main/install_script.py
 ```
 
 #### Using Thonny IDE (Recommended for beginners)
@@ -57,7 +57,7 @@ The script will:
 
 ### Option 2: Manual Installation
 
-1. Download the SDK from [GitHub](https://github.com/tendrl-inc/micropython-sdk)
+1. Download the SDK from [GitHub](https://github.com/tendrl-inc-labs/micropython-client)
 2. Copy the `tendrl/` directory to your device's `/lib` directory
 3. Create or update the `config.json` file in your device's root directory
 
