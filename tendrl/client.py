@@ -19,7 +19,7 @@ except ImportError:
     ASYNCIO_AVAILABLE = False
 try:
     import btree
-    from tendrl.lib.tetherdb.TetherDB import DB
+    from tendrl.lib.microtetherdb.MicroTetherDB import MicroTetherDB as DB
     BTREE_AVAILABLE = True
 except ImportError:
     BTREE_AVAILABLE = False

@@ -64,7 +64,7 @@ class DBLock(Exception):
     pass
 
 
-class DB:
+class MicroTetherDB:
     """Main database class"""
 
     __slots__ = (
