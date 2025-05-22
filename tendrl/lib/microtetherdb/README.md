@@ -1,13 +1,13 @@
 # MicroTetherDB
 
-A simple, lightweight database for MicroPython devices.
+A lightweight, feature-rich key-value database for MicroPython devices with support for in-memory storage (default), compression (when available), async operations, and BTree storage.
 
 ## Installation
 
-1. Copy the `MicroTetherDB.py` file to your MicroPython device
+1. Copy the `microtetherdb` directory to your MicroPython device
 2. Import the database class:
 ```python
-from MicroTetherDB import MicroTetherDB
+from microtetherdb import MicroTetherDB
 ```
 
 ## Usage
@@ -15,106 +15,249 @@ from MicroTetherDB import MicroTetherDB
 ### Basic Operations
 
 ```python
-# Create a new database
-db = MicroTetherDB("my_database.db")
+# Create a new in-memory database with default settings (15% of free memory)
+db = MicroTetherDB()
 
-# Store data
-db["key"] = "value"
+# Create a file-based database
+db = MicroTetherDB(
+    "my_database.db",
+    in_memory=False  # explicitly set to False for file storage
+)
+
+# Create an in-memory database with custom memory allocation
+db = MicroTetherDB(
+    ram_percentage=25  # use 25% of available free memory
+)
+
+# Store data with optional TTL (time-to-live in seconds)
+# Method 1: put(data, ttl=None, tags=None, _id=None)
+db.put(
+    {"name": "John", "age": 30},
+    ttl=3600,  # expires in 1 hour
+    tags=["user", "active"]
+)
+
+# Method 2: put(key, data, ttl=None, tags=None)
+db.put(
+    "user1",
+    {"name": "John", "age": 30},
+    ttl=3600,  # expires in 1 hour
+    tags=["user", "active"]
+)
 
 # Retrieve data
-value = db["key"]
+value = db.get("user1")
 
 # Delete data
-del db["key"]
+db.delete("user1")
 
-# Check if key exists
-if "key" in db:
-    print("Key exists!")
-
-# Iterate over all keys
-for key in db:
-    print(key, db[key])
-
-# Close the database
-db.close()
+# Clear all data
+db.delete(purge=True)
 ```
 
-### Transactions
+### Memory Management
 
-```python
-# Start a transaction
-with db.transaction():
-    db["key1"] = "value1"
-    db["key2"] = "value2"
-    # If any operation fails, all changes are rolled back
+The database automatically manages memory usage in several ways:
+
+1. **Dynamic Memory Sizing**:
+   - By default, uses 15% of available free memory
+   - Minimum allocation: 1KB
+   - Maximum allocation: 32KB
+   - Automatically adjusts block size and count
+   - Falls back to file-based storage if memory is insufficient
+
+2. **Memory Optimization**:
+   - Uses smaller blocks (max 256 bytes) for better memory management
+   - Implements garbage collection before initialization
+   - Provides memory usage information during initialization
+   - Automatically reduces memory usage if needed
+
+3. **Memory Monitoring**:
+   - Prints memory information during initialization
+   - Shows total and free memory
+   - Reports block size and count being used
+   - Shows percentage of free memory being used
+
+Example output:
+```
+Memory info - Total: 131072, Free: 65536
+Using 32 blocks of 256 bytes each (15% of free memory)
 ```
 
-### Locking
+### Advanced Features
 
 ```python
-# Acquire a lock
-with db.lock():
-    # Perform operations that need to be atomic
-    db["key1"] = "value1"
-    db["key2"] = "value2"
+# Create database with custom settings
+db = MicroTetherDB(
+    ram_percentage=20,         # use 20% of free memory
+    use_compression=True,      # enable compression if uzlib is available
+    min_compress_size=256,     # minimum size for compression
+    btree_cachesize=32,        # BTree cache size
+    btree_pagesize=512,        # BTree page size
+    adaptive_threshold=True    # automatically adjust flush threshold
+)
+
+# Store data with tags (using key-first method)
+db.put(
+    "user1",
+    {"name": "John", "age": 30},
+    tags=["user", "active"]
+)
+
+# Query data by tags and conditions
+results = db.query({
+    "tags": "active",
+    "age": {"$gt": 25},
+    "name": {"$contains": "Jo"}
+})
+
+# Batch operations
+items = [
+    {"name": "John", "age": 30},
+    {"name": "Jane", "age": 25}
+]
+keys = db.put_batch(items, ttls=[3600, 7200])  # different TTLs for each item
+
+# Delete multiple items
+deleted = db.delete_batch(keys)
+```
+
+### Async Usage
+
+```python
+import asyncio
+
+async def main():
+    async with MicroTetherDB() as db:
+        # Async operations
+        await db.put({"key": "value"})
+        value = await db.get("key")
+        
+        # Batch operations
+        items = [{"key1": "value1"}, {"key2": "value2"}]
+        keys = await db.put_batch(items)
+        
+        # Complex queries
+        results = await db.query({"key1": {"$exists": True}})
+
+# Run async code
+asyncio.run(main())
 ```
 
 ## Features
 
-- Simple key-value storage
-- Transaction support
+- In-memory storage by default (faster performance)
+- Dynamic memory sizing based on available RAM
+- Optional file-based storage
+- BTree-based storage for efficient key-value operations
+- Data compression (when uzlib is available)
+- TTL (Time-To-Live) support
+- Tag-based querying
+- Complex query conditions ($gt, $lt, $in, etc.)
+- Automatic cleanup of expired entries
+- Thread-safe operations with async support
 - Locking mechanism
-- Automatic file handling
 - Memory efficient
-- Thread-safe operations
+- Batch operations
+- Adaptive flush threshold
+- Operation counting and monitoring
+
+## Core Components
+
+The database is modularized into several components:
+
+- `db.py`: Main database implementation
+- `core/ram_device.py`: RAM block device for in-memory storage
+- `core/future.py`: Future class for async operations
+- `core/exceptions.py`: Custom exceptions
+- `core/compression.py`: Data compression utilities
+
+## Query Operators
+
+The database supports the following query operators:
+
+- `$eq`: Equal to
+- `$gt`: Greater than
+- `$gte`: Greater than or equal to
+- `$lt`: Less than
+- `$lte`: Less than or equal to
+- `$in`: Value is in array
+- `$ne`: Not equal to
+- `$exists`: Field exists
+- `$contains`: String or array contains value
 
 ## Limitations
 
 - Keys must be strings
-- Values must be serializable
-- No complex queries
-- No indexing
-- No relationships
+- Values must be JSON serializable
+- In-memory storage is lost on power cycle
+- Limited by available RAM for in-memory storage
+- No complex queries or indexing
+- Compression requires the `uzlib` module (not available on all MicroPython devices)
+- BTree module must be available
+- Maximum value size is 1KB
 
 ## Best Practices
 
-1. Always close the database when done
-2. Use transactions for multiple operations
-3. Use locks when needed
-4. Keep keys and values small
-5. Regular backups recommended
+1. Use in-memory storage for temporary data or when persistence isn't needed
+2. Use file-based storage when data persistence is required
+3. Let the database automatically manage memory usage
+4. Monitor memory usage through initialization logs
+5. Set reasonable TTL values to prevent database growth
+6. Use compression for larger values (if uzlib is available)
+7. Regular cleanup of expired entries
+8. Handle exceptions appropriately
+9. Use tags for better data organization
+10. Use batch operations for better performance
+11. Monitor operation counts for adaptive threshold tuning
 
 ## Example
 
 ```python
-from MicroTetherDB import MicroTetherDB
+from microtetherdb import MicroTetherDB
 
-# Create or open database
-db = MicroTetherDB("my_database.db")
+# Create in-memory database with automatic memory sizing
+db = MicroTetherDB(
+    ram_percentage=15,        # use 15% of free memory
+    use_compression=True,     # will be disabled if uzlib is not available
+    min_compress_size=256,
+    adaptive_threshold=True
+)
 
 try:
-    # Store some data
-    db["user1"] = {"name": "John", "age": 30}
-    db["user2"] = {"name": "Jane", "age": 25}
+    # Store user data with TTL and tags (using key-first method)
+    db.put(
+        "user1",
+        {"name": "John", "age": 30},
+        ttl=86400,  # 24 hours
+        tags=["user", "active"]
+    )
 
-    # Retrieve data
-    user1 = db["user1"]
+    # Retrieve user data
+    user1 = db.get("user1")
     print(f"User 1: {user1}")
 
-    # Update data
-    db["user1"]["age"] = 31
+    # Query users by tag and age
+    active_users = db.query({
+        "tags": "active",
+        "age": {"$gt": 25}
+    })
+    print(f"Active users over 25: {active_users}")
 
-    # Delete data
-    del db["user2"]
+    # Batch operations
+    users = [
+        {"name": "Jane", "age": 28},
+        {"name": "Bob", "age": 35}
+    ]
+    keys = db.put_batch(users, ttls=[3600, 7200])
 
-    # List all users
-    print("\nAll users:")
-    for key in db:
-        print(f"{key}: {db[key]}")
+    # Delete expired entries
+    cleaned = db.cleanup()
+    print(f"Cleaned up {cleaned} expired entries")
 
 finally:
-    # Always close the database
-    db.close()
+    # Cleanup is automatic, but you can force it
+    db.cleanup()
 ```
 
 ## Contributing
