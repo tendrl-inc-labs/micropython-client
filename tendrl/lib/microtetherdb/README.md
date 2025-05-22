@@ -116,11 +116,3 @@ finally:
     # Always close the database
     db.close()
 ```
-
-## Contributing
-
-Feel free to submit issues and pull requests.
-
-## License
-
-MIT License
