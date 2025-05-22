@@ -259,11 +259,3 @@ finally:
     # Cleanup is automatic, but you can force it
     db.cleanup()
 ```
-
-## Contributing
-
-Feel free to submit issues and pull requests.
-
-## License
-
-MIT License
