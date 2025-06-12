@@ -1,30 +1,20 @@
-"""
-Compression utilities for MicroTetherDB
-"""
+import io
 
 try:
-    import uzlib
-    HAS_UZLIB = True
+    import deflate
+    HAS_COMPRESSION = True
 except ImportError:
-    uzlib = None
-    HAS_UZLIB = False
+    HAS_COMPRESSION = False
+
 
 def compress_data(data, use_compression=True, min_size=256):
-    """Compress data if it meets the size threshold and compression is available
-    
-    Args:
-        data (bytes): Data to compress
-        use_compression (bool): Whether to attempt compression
-        min_size (int): Minimum size for compression attempt
-        
-    Returns:
-        tuple: (compressed_data, is_compressed)
-    """
-    if not use_compression or not HAS_UZLIB or len(data) < min_size:
+    if not use_compression  or len(data) < min_size:
         return data, False
-        
     try:
-        compressed = uzlib.compress(data, 9)  # Max compression
+        compressed_stream = io.BytesIO()
+        with deflate.DeflateIO(compressed_stream, deflate.ZLIB, level=4) as d:
+            d.write(data)
+        compressed = compressed_stream.getvalue()
         if len(compressed) < len(data):
             return compressed, True
     except Exception as e:
@@ -32,19 +22,12 @@ def compress_data(data, use_compression=True, min_size=256):
     return data, False
 
 def decompress_data(data, is_compressed):
-    """Decompress data if it was compressed and compression is available
-    
-    Args:
-        data (bytes): Data to decompress
-        is_compressed (bool): Whether the data is compressed
-        
-    Returns:
-        bytes: Decompressed data
-    """
-    if is_compressed and HAS_UZLIB:
-        try:
-            return uzlib.decompress(data, 32768)  # 32KB limit
-        except Exception as e:
-            print(f"Decompression error: {e}")
-            return data
-    return data 
+    if not is_compressed:
+        return data
+    try:
+        compressed_stream = io.BytesIO(data)
+        with deflate.DeflateIO(compressed_stream, deflate.ZLIB) as d:
+            return d.read()
+    except Exception as e:
+        print(f"Decompression error: {e}")
+        return data

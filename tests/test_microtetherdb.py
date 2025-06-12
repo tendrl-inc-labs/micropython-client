@@ -2,7 +2,7 @@ import gc
 import os
 import time
 import asyncio
-from tendrl.lib.microtetherdb.MicroTetherDB import MicroTetherDB
+from tendrl.lib.microtetherdb.db import MicroTetherDB
 
 def measure_time(func):
     """Decorator to measure execution time in milliseconds"""
@@ -17,7 +17,7 @@ def measure_time(func):
 
 def time_operation(operation, *args, performance_summary=None, **kwargs):
     """Helper function to measure individual operation time in milliseconds"""
-    print(f"\n--- DEBUG: time_operation called ---")
+    print("\n--- DEBUG: time_operation called ---")
     print(f"Operation name: {operation.__name__}")
     print(f"Positional args: {args}")
     print(f"Keyword args: {kwargs}")
@@ -25,7 +25,7 @@ def time_operation(operation, *args, performance_summary=None, **kwargs):
     start = time.ticks_ms()
     result = None
     success = False
-    
+
     # Determine operation type for performance tracking
     op_name = operation.__name__
     # Map function names to metric categories
@@ -39,37 +39,36 @@ def time_operation(operation, *args, performance_summary=None, **kwargs):
     try:
         # Remove performance_summary from kwargs
         filtered_kwargs = {k: v for k, v in kwargs.items() if k != 'performance_summary'}
-        
+
         # Handle async operations - MicroPython style
         if hasattr(operation, '__await__'):
             loop = asyncio.get_event_loop()
             result = loop.run_until_complete(operation(*args, **filtered_kwargs))
         else:
             result = operation(*args, **filtered_kwargs)
-            
+
         success = True
-        
-        # Track batch operation details
+
         if performance_summary is not None and metric_category in ['batch_put', 'batch_delete']:
             if op_name == "put_batch":
                 items_processed = len(result) if result else 0
             else:  # delete_batch
                 items_processed = result if result else 0
-            
+
             performance_summary[metric_category]['total_items'] += items_processed
-            
+
             if performance_summary[metric_category]['total_ops'] > 0:
                 performance_summary[metric_category]['avg_items_per_batch'] = (
-                    performance_summary[metric_category]['total_items'] / 
+                    performance_summary[metric_category]['total_items'] /
                     performance_summary[metric_category]['total_ops']
                 )
-                
+
         # Track query result counts
         if performance_summary is not None and op_name == "query":
             if not isinstance(result, list):
                 result = list(result)
             performance_summary['query']['result_counts'].append(len(result))
-            
+
     except Exception as e:
         print(f"Error in {op_name} operation: {e}")
         success = False
@@ -77,31 +76,31 @@ def time_operation(operation, *args, performance_summary=None, **kwargs):
 
     end = time.ticks_ms()
     duration = time.ticks_diff(end, start)
-    
+
     # Track performance metrics
     if performance_summary is not None and metric_category in performance_summary:
         # Update basic metrics
         performance_summary[metric_category]['total_time'] += duration
         performance_summary[metric_category]['total_ops'] += 1
         performance_summary[metric_category]['avg_time'] = (
-            performance_summary[metric_category]['total_time'] / 
+            performance_summary[metric_category]['total_time'] /
             performance_summary[metric_category]['total_ops']
         )
-        
+
         # Update success/failure metrics
         if success:
             performance_summary[metric_category]['success_count'] += 1
         else:
             performance_summary[metric_category]['failure_count'] += 1
-            
+
         # Update min/max times
         if duration < performance_summary[metric_category]['min_time']:
             performance_summary[metric_category]['min_time'] = duration
         if duration > performance_summary[metric_category]['max_time']:
             performance_summary[metric_category]['max_time'] = duration
-            
+
         print(f"Updated performance metrics for {metric_category}: ops={performance_summary[metric_category]['total_ops']}, time={performance_summary[metric_category]['total_time']}")
-    
+
     return result, duration
 
 @measure_time
@@ -116,7 +115,7 @@ def test_basic_operations(performance_summary, use_memory=False):
         except:
             pass
 
-    db = MicroTetherDB(":memory:" if use_memory else "test.db")
+    db = MicroTetherDB(filename="test.db", in_memory=use_memory)
     try:
         # Test put
         print("\nTesting put operation...")
@@ -156,6 +155,17 @@ def test_basic_operations(performance_summary, use_memory=False):
         print(f"Get after delete: {result}")
         assert result is None, "Data still exists after delete"
 
+        # Test explicit key with put
+        print("\nTesting put with explicit key...")
+        result, put_time = time_operation(db.put, "test_key", {"name": "Jane", "age": 25}, performance_summary=performance_summary)
+        print(f"Put with explicit key took {put_time}ms")
+        print(f"Put key: {result}")
+        assert result == "test_key", "Explicit key mismatch"
+
+        # Verify data with explicit key
+        data = db.get("test_key")
+        assert data["name"] == "Jane" and data["age"] == 25, "Explicit key data mismatch"
+
         print("\nOperation timing summary:")
         print(f"Put: {put_time}ms")
         print(f"Get: {get_time}ms")
@@ -169,7 +179,7 @@ def test_ttl(performance_summary, use_memory=False):
     """Test TTL functionality"""
     print("\nTesting TTL...")
 
-    db = MicroTetherDB(":memory:" if use_memory else "test.db")
+    db = MicroTetherDB(filename="test.db", in_memory=use_memory)
     try:
         # Store data with 5 second TTL
         result, put_time = time_operation(db.put, {"name": "John"}, ttl=5, performance_summary=performance_summary)
@@ -211,7 +221,7 @@ def test_batch_operations(performance_summary, use_memory=False):
     """Test batch operations"""
     print("\nTesting batch operations...")
 
-    db = MicroTetherDB(":memory:" if use_memory else "test.db")
+    db = MicroTetherDB(filename="test.db", in_memory=use_memory)
     try:
         # Test batch put
         batch_items = [
@@ -245,6 +255,22 @@ def test_batch_operations(performance_summary, use_memory=False):
         assert db.get(keys[1]) is None, "Second item should be deleted"
         assert db.get(keys[2]) is not None, "Third item should still exist"
 
+        # Test batch put with TTLs
+        batch_items_ttl = [
+            {"name": "TTL1", "value": 100},
+            {"name": "TTL2", "value": 200},
+        ]
+        ttls = [5, 10]  # 5 and 10 second TTLs
+
+        keys_ttl, put_time = time_operation(db.put_batch, batch_items_ttl, ttls=ttls, performance_summary=performance_summary)
+        print(f"Batch put with TTL operation took {put_time}ms")
+        print(f"Inserted {len(keys_ttl)} items with TTLs")
+
+        # Verify TTL items were inserted
+        for i, key in enumerate(keys_ttl):
+            data = db.get(key)
+            assert data["name"] == f"TTL{i+1}", f"TTL item {i+1} name incorrect"
+
         print("Batch operations tests passed")
     finally:
         del db
@@ -254,13 +280,15 @@ def test_query_operators(performance_summary, use_memory=False):
     """Test query operators"""
     print("\nTesting query operators...")
 
-    db = MicroTetherDB(":memory:" if use_memory else "test.db")
+    db = MicroTetherDB(filename="test.db", in_memory=use_memory)
     try:
         # Store test data
         test_data = [
-            {"name": "John", "age": 30, "tags": ["user"]},
-            {"name": "Jane", "age": 25, "tags": ["user"]},
-            {"name": "Bob", "age": 35, "tags": ["admin"]},
+            {"name": "John", "age": 30, "tags": ["user"], "profile": {"level": 1, "active": True}},
+            {"name": "Jane", "age": 25, "tags": ["user", "premium"], "profile": {"level": 2, "active": True}},
+            {"name": "Bob", "age": 35, "tags": ["admin"], "profile": {"level": 3, "active": False}},
+            {"name": "Alice", "age": 28, "tags": ["user", "premium"], "profile": {"level": 2, "active": True}},
+            {"name": "Dave", "age": 42, "tags": ["admin", "super"], "profile": {"level": 4, "active": True}},
         ]
 
         # Measure put operations
@@ -280,12 +308,21 @@ def test_query_operators(performance_summary, use_memory=False):
 
         # Test various query operators with timing
         query_tests = [
-            ("$eq", {"name": "John"}),
-            ("$gt", {"age": {"$gt": 30}}),
-            ("$in", {"name": {"$in": ["John", "Jane"]}}),
-            ("$contains", {"tags": {"$contains": "admin"}}),
-            ("$exists", {"tags": {"$exists": True}}),
-            ("$ne", {"name": {"$ne": "John"}}),
+            ("$eq - Simple equality", {"name": "John"}),
+            ("$eq - Explicit operator", {"name": {"$eq": "John"}}),
+            ("$gt - Greater than", {"age": {"$gt": 30}}),
+            ("$gte - Greater than or equal", {"age": {"$gte": 30}}),
+            ("$lt - Less than", {"age": {"$lt": 30}}),
+            ("$lte - Less than or equal", {"age": {"$lte": 30}}),
+            ("$in - Value in array", {"name": {"$in": ["John", "Jane"]}}),
+            ("$ne - Not equal", {"name": {"$ne": "John"}}),
+            ("$exists - Field exists", {"profile": {"$exists": True}}),
+            ("$contains - Array contains", {"tags": {"$contains": "admin"}}),
+            ("Nested field query", {"profile.level": {"$gt": 2}}),
+            ("Nested field simple", {"profile.active": True}),
+            ("Multiple conditions", {"age": {"$gt": 25}, "profile.active": True}),
+            ("Tag query", {"tags": "premium"}),
+            ("Query with limit", {"age": {"$gt": 0}, "$limit": 2}),
         ]
 
         print("\nQuery operator timing:")
@@ -294,11 +331,26 @@ def test_query_operators(performance_summary, use_memory=False):
                 print(f"\nExecuting {op_name} query with: {query_dict}")
                 result, query_time = time_operation(db.query, query_dict, performance_summary=performance_summary)
                 print(f"{op_name} query took {query_time}ms")
-                
+
                 if not isinstance(result, list):
                     result = list(result)
-                    
-                print(f"{op_name} results: {result}")
+
+                print(f"{op_name} results count: {len(result)}")
+                if len(result) > 0:
+                    print(f"First result: {result[0]}")
+                else:
+                    print("No results")
+
+                # Add specific assertions for certain queries
+                if op_name == "$eq - Simple equality":
+                    assert len(result) == 1 and result[0]["name"] == "John", "Simple equality query failed"
+                elif op_name == "$gt - Greater than":
+                    assert all(doc["age"] > 30 for doc in result), "Greater than query failed"
+                elif op_name == "Query with limit":
+                    assert len(result) <= 2, "Limit query failed"
+                elif op_name == "Tag query":
+                    assert all("premium" in doc.get("_tags", []) for doc in result), "Tag query failed"
+
             except Exception as e:
                 print(f"Error executing {op_name} query: {e}")
                 print(f"Query that caused error: {query_dict}")
@@ -310,11 +362,38 @@ def test_query_operators(performance_summary, use_memory=False):
     finally:
         del db
 
+@measure_time
+def test_memory_to_file_fallback(performance_summary):
+    """Test the fallback from memory to file storage"""
+    print("\nTesting memory to file fallback...")
+
+    # Set an extremely high memory percentage to force fallback
+    db = None
+    try:
+        # Request 90% of memory which should trigger fallback
+        print("Creating database with high memory request (should trigger fallback)...")
+        db = MicroTetherDB(filename="fallback.db", in_memory=True, ram_percentage=90)
+
+        # Check if we're actually using file storage
+        # We can't directly check this, but we can verify the database works
+        key = db.put({"test": "fallback"})
+        data = db.get(key)
+        assert data and data["test"] == "fallback", "Failed to store data after fallback"
+
+        print("Memory to file fallback test passed")
+    finally:
+        if db:
+            del db
+        try:
+            os.unlink("fallback.db")
+        except Exception:
+            pass
+
 def run_tests(use_memory=False):
     """Run all tests with specified storage type"""
     storage_type = "memory" if use_memory else "file"
     print(f"\nRunning tests with {storage_type} storage...")
-    
+
     performance_summary = {
         "put": {
             "total_time": 0, 
@@ -391,6 +470,10 @@ def run_tests(use_memory=False):
         run_test_with_perf(test_batch_operations)
         run_test_with_perf(test_query_operators)
 
+        # Only run fallback test once as it tests transition between memory and file
+        if not use_memory:
+            test_memory_to_file_fallback(performance_summary)
+
         total_end_time = time.time()
         total_test_time = total_end_time - total_start_time
 
@@ -398,59 +481,47 @@ def run_tests(use_memory=False):
         print(f"\n{'=' * 80}")
         print(f"PERFORMANCE SUMMARY FOR {storage_type.upper()} STORAGE")
         print(f"{'=' * 80}")
-        
+
         print("\nBASIC OPERATION METRICS:")
-        print("{:<15} {:<15} {:<15} {:<15} {:<15} {:<15}".format(
-            "Operation", "Total Ops", "Total Time(ms)", "Avg Time(ms)", "Min Time(ms)", "Max Time(ms)"))
+        print(f"{'Operation':<15} {'Total Ops':<15} {'Total Time(ms)':<15} {'Avg Time(ms)':<15} {'Min Time(ms)':<15} {'Max Time(ms)':<15}")
         print("-" * 90)
-        
+
         for op, metrics in performance_summary.items():
             min_time = metrics['min_time'] if metrics['min_time'] != float('inf') else 0
             max_time = metrics['max_time']
-            print("{:<15} {:<15} {:<15.2f} {:<15.2f} {:<15.2f} {:<15.2f}".format(
-                op, 
-                metrics['total_ops'], 
-                metrics['total_time'], 
-                metrics['avg_time'] if metrics['total_ops'] > 0 else 0,
-                min_time,
-                max_time
-            ))
-        
+            avg_time = metrics['avg_time'] if metrics['total_ops'] > 0 else 0
+            print(f"{op:<15} {metrics['total_ops']:<15} {metrics['total_time']:<15.2f} {avg_time:<15.2f} {min_time:<15.2f} {max_time:<15.2f}")
+
         print("\nSUCCESS RATE METRICS:")
-        print("{:<15} {:<15} {:<15} {:<15}".format(
-            "Operation", "Success Count", "Failure Count", "Success Rate(%)"))
+        print(f"{'Operation':<15} {'Success Count':<15} {'Failure Count':<15} {'Success Rate(%)':<15}")
         print("-" * 60)
-        
+
         for op, metrics in performance_summary.items():
             success_count = metrics.get('success_count', 0)
             failure_count = metrics.get('failure_count', 0)
             total = success_count + failure_count
             success_rate = (success_count / total * 100) if total > 0 else 0
-            print("{:<15} {:<15} {:<15} {:<15.2f}".format(
-                op, success_count, failure_count, success_rate))
-        
+            print(f"{op:<15} {success_count:<15} {failure_count:<15} {success_rate:<15.2f}")
+
         if performance_summary['batch_put']['total_ops'] > 0 or performance_summary['batch_delete']['total_ops'] > 0:
             print("\nBATCH OPERATION METRICS:")
-            print("{:<15} {:<20} {:<20} {:<20}".format(
-                "Operation", "Total Batches", "Total Items", "Avg Items/Batch"))
+            print(f"{'Operation':<15} {'Total Batches':<20} {'Total Items':<20} {'Avg Items/Batch':<20}")
             print("-" * 75)
-            
+
             for op in ['batch_put', 'batch_delete']:
                 metrics = performance_summary[op]
                 total_batches = metrics['total_ops']
                 total_items = metrics.get('total_items', 0)
                 avg_items = metrics.get('avg_items_per_batch', 0)
-                print("{:<15} {:<20} {:<20} {:<20.2f}".format(
-                    op, total_batches, total_items, avg_items))
-        
+                print(f"{op:<15} {total_batches:<20} {total_items:<20} {avg_items:<20.2f}")
+
         if performance_summary['query']['result_counts']:
             result_counts = performance_summary['query']['result_counts']
             print("\nQUERY RESULT METRICS:")
-            print("Average results per query: {:.2f}".format(
-                sum(result_counts) / len(result_counts) if result_counts else 0))
-            print("Minimum results: {}".format(min(result_counts) if result_counts else 0))
-            print("Maximum results: {}".format(max(result_counts) if result_counts else 0))
-        
+            print(f"Average results per query: {sum(result_counts) / len(result_counts) if result_counts else 0:.2f}")
+            print(f"Minimum results: {min(result_counts) if result_counts else 0}")
+            print(f"Maximum results: {max(result_counts) if result_counts else 0}")
+
         print(f"\nTotal Test Execution Time: {total_test_time:.2f} seconds")
         print(f"{'=' * 80}")
 
@@ -463,30 +534,28 @@ def run_tests(use_memory=False):
 def main():
     """Run tests for both memory and file storage"""
     print("Initializing test environment...")
-    
+
     # Run tests with memory storage
     memory_performance = run_tests(use_memory=True)
-    
+
     # Run tests with file storage
     file_performance = run_tests(use_memory=False)
-    
+
     # Compare results
     print("\n" + "=" * 80)
     print("COMPARISON OF MEMORY VS FILE STORAGE")
     print("=" * 80)
-    
+
     print("\nOPERATION SPEED COMPARISON (ms):")
-    print("{:<15} {:<15} {:<15} {:<15}".format(
-        "Operation", "Memory Avg", "File Avg", "Speedup"))
+    print(f"{'Operation':<15} {'Memory Avg':<15} {'File Avg':<15} {'Speedup':<15}")
     print("-" * 60)
-    
-    for op in memory_performance.keys():
-        if memory_performance[op]['total_ops'] > 0 and file_performance[op]['total_ops'] > 0:
-            memory_avg = memory_performance[op]['avg_time']
+
+    for op, metrics in memory_performance.items():
+        if metrics['total_ops'] > 0 and op in file_performance and file_performance[op]['total_ops'] > 0:
+            memory_avg = metrics['avg_time']
             file_avg = file_performance[op]['avg_time']
             speedup = file_avg / memory_avg if memory_avg > 0 else 0
-            print("{:<15} {:<15.2f} {:<15.2f} {:<15.2f}x".format(
-                op, memory_avg, file_avg, speedup))
+            print(f"{op:<15} {memory_avg:<15.2f} {file_avg:<15.2f} {speedup:<15.2f}x")
 
 if __name__ == "__main__":
     main()
