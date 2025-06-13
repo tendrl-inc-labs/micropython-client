@@ -242,40 +242,13 @@ class MicroTetherDB:
             await self._acquire_lock()
             try:
                 key_bytes = key.encode() if isinstance(key, str) else key
-                
-                # Optimize for in-memory storage
-                if self.in_memory:
-                    try:
-                        raw_data = self._db[key_bytes]
-                        return json.loads(raw_data.decode())
-                    except KeyError:
-                        return None
-                    except Exception as e:
-                        raise
-                else:
-                    # Original file-based implementation
-                    try:
-                        keys_iter = self._db.keys(None, None, btree.INCL)
-                        keys = []
-                        for k in keys_iter:
-                            keys.append(k)
-                    except Exception:
-                        raise
-                    try:
-                        found_key = None
-                        for k in self._db.keys(None, None, btree.INCL):
-                            if k == key_bytes:
-                                found_key = k
-                                break
-                        if found_key is None:
-                            return None
-                        raw_data = self._db[found_key]
-                        result = json.loads(raw_data.decode())
-                        return result
-                    except KeyError:
-                        return None
-                    except Exception as e:
-                        raise
+                try:
+                    raw_data = self._db[key_bytes]
+                    return json.loads(raw_data.decode())
+                except KeyError:
+                    return None
+                except Exception as e:
+                    raise
             finally:
                 self._lock.release()
         except Exception as e:
@@ -324,8 +297,10 @@ class MicroTetherDB:
                 self._flush_counter = 0
                 self._last_flush_time = time.time()
                 return 1  # Return 1 to indicate success
-            if key in self._db:
-                del self._db[key]
+
+            key_bytes = key.encode() if isinstance(key, str) else key
+            if key_bytes in self._db:
+                del self._db[key_bytes]
                 self._operation_counts["delete"] += 1
                 self._flush_counter += 1
                 current_time = time.time()
@@ -415,48 +390,31 @@ class MicroTetherDB:
                                 return False
                 return True
 
-            # Optimize for in-memory storage
-            if self.in_memory:
-                # Process documents in smaller batches to reduce memory pressure
-                batch_size = 5  # Reduced from 10 to 5
-                current_batch = []
-                processed = 0
-                
-                for key in self._db.keys(None, None, btree.INCL):
-                    try:
-                        raw_data = self._db[key]
-                        doc = json.loads(raw_data.decode())
-                        if matches_query(doc):
-                            current_batch.append(doc)
-                            processed += 1
-                            if len(current_batch) >= batch_size:
-                                results.extend(current_batch)
-                                current_batch = []
-                                if limit is not None and len(results) >= limit:
-                                    results = results[:limit]
-                                    break
-                    except Exception as e:
-                        print(f"Error processing document: {e}")
-                        continue
-                
-                # Add any remaining documents
-                if current_batch:
-                    results.extend(current_batch)
-                    if limit is not None:
-                        results = results[:limit]
-            else:
-                # For file storage, use the original implementation
-                for key in self._db.keys(None, None, btree.INCL):
-                    try:
-                        raw_data = self._db[key]
-                        doc = json.loads(raw_data.decode())
-                        if matches_query(doc):
-                            results.append(doc)
-                            if limit is not None and len(results) == limit:
+            # Process documents in batches
+            batch_size = 20  # Increased from 5 to 20
+            current_batch = []
+            
+            for key in self._db.keys(None, None, btree.INCL):
+                try:
+                    raw_data = self._db[key]
+                    doc = json.loads(raw_data.decode())
+                    if matches_query(doc):
+                        current_batch.append(doc)
+                        if len(current_batch) >= batch_size:
+                            results.extend(current_batch)
+                            current_batch = []
+                            if limit is not None and len(results) >= limit:
+                                results = results[:limit]
                                 break
-                    except Exception as e:
-                        print(f"Error processing document: {e}")
-                        continue
+                except Exception as e:
+                    print(f"Error processing document: {e}")
+                    continue
+            
+            # Add any remaining documents
+            if current_batch:
+                results.extend(current_batch)
+                if limit is not None:
+                    results = results[:limit]
 
             return results
         finally:
