@@ -204,8 +204,8 @@ class MicroTetherDB:
                 if tags:
                     data["_tags"] = tags
                 json_data = json.dumps(data)
-                if len(json_data) > 1024:
-                    raise ValueError("Data too large")
+                if len(json_data) > 8192:  # 8KB limit
+                    raise ValueError("Data too large: maximum size is 8KB after JSON serialization")
                 encoded_data = json_data.encode()
                 compressed_data, is_compressed = compress_data(
                     encoded_data,
@@ -462,7 +462,7 @@ class MicroTetherDB:
                 if not isinstance(item, dict):
                     continue
                 json_data = json.dumps(item)
-                if len(json_data) > 1024:
+                if len(json_data) > 8192:  # 8KB limit
                     continue
                 key = self._generate_key(int(item_ttl))
                 encoded_data = json_data.encode()

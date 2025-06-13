@@ -1,11 +1,12 @@
 # MicroTetherDB
 
-A lightweight, feature-rich key-value database for MicroPython devices with support for in-memory storage (default), compression (when available), async operations, and BTree storage.
+A lightweight, feature-rich key-value (BTree) database for MicroPython devices with support for in-memory storage (RAM / volatile), flash based storage (flash / persistent), compression (where available), async operations.
 
 ## Installation
 
 1. Copy the `microtetherdb` directory to your MicroPython device
 2. Import the database class:
+
 ```python
 from microtetherdb import MicroTetherDB
 ```
@@ -55,6 +56,69 @@ db.delete("user1")
 db.delete(purge=True)
 ```
 
+### Query Examples
+
+The database supports rich querying capabilities with various operators. Here are examples of different query types:
+
+```python
+# Basic equality query
+results = db.query({"name": "John"})
+
+# Numeric comparisons
+results = db.query({
+    "age": {"$gt": 25},           # Greater than
+    "score": {"$gte": 80},        # Greater than or equal
+    "temperature": {"$lt": 30},   # Less than
+    "pressure": {"$lte": 1000}    # Less than or equal
+})
+
+# Multiple conditions
+results = db.query({
+    "age": {"$gt": 25},
+    "status": "active",
+    "score": {"$gte": 80}
+})
+
+# Array operations
+results = db.query({
+    "tags": "active",             # Array contains
+    "categories": {"$in": ["electronics", "gadgets"]}  # Value in array
+})
+
+# String operations
+results = db.query({
+    "name": {"$contains": "Jo"},  # String contains
+    "description": {"$ne": "test"}  # Not equal
+})
+
+# Field existence
+results = db.query({
+    "email": {"$exists": True},   # Field exists
+    "phone": {"$exists": False}   # Field doesn't exist
+})
+
+# Nested field queries
+results = db.query({
+    "address.city": "New York",
+    "settings.notifications": True
+})
+
+# Limit results
+results = db.query({
+    "status": "active",
+    "$limit": 10  # Return only first 10 matches
+})
+
+# Complex queries with multiple operators
+results = db.query({
+    "age": {"$gt": 25, "$lt": 50},
+    "status": {"$in": ["active", "pending"]},
+    "score": {"$gte": 80},
+    "name": {"$contains": "Jo"},
+    "$limit": 5
+})
+```
+
 ### Memory Management
 
 The database automatically manages memory usage in several ways:
@@ -79,7 +143,8 @@ The database automatically manages memory usage in several ways:
    - Shows percentage of free memory being used
 
 Example output:
-```
+
+```sh
 Memory info - Total: 131072, Free: 65536
 Using 32 blocks of 256 bytes each (15% of free memory)
 ```
@@ -193,9 +258,9 @@ The database supports the following query operators:
 - In-memory storage is lost on power cycle
 - Limited by available RAM for in-memory storage
 - No complex queries or indexing
-- Compression requires the `uzlib` module (not available on all MicroPython devices)
+- Compression requires the `deflate` module (not available on all MicroPython devices)
 - BTree module must be available
-- Maximum value size is 1KB
+- Maximum value size is 8KB (after JSON serialization)
 
 ## Best Practices
 
@@ -204,12 +269,13 @@ The database supports the following query operators:
 3. Let the database automatically manage memory usage
 4. Monitor memory usage through initialization logs
 5. Set reasonable TTL values to prevent database growth
-6. Use compression for larger values (if uzlib is available)
+6. Use compression for larger values (if deflate is available)
 7. Regular cleanup of expired entries
 8. Handle exceptions appropriately
 9. Use tags for better data organization
 10. Use batch operations for better performance
 11. Monitor operation counts for adaptive threshold tuning
+12. The database automatically adjusts flush thresholds based on operation patterns
 
 ## Example
 
