@@ -4,6 +4,14 @@ import time
 import asyncio
 from tendrl.lib.microtetherdb.db import MicroTetherDB
 
+def show_memory():
+    free = gc.mem_free()
+    allocated = gc.mem_alloc()
+    total = free + allocated
+    print("Total:", total, "bytes")
+    print("Used:", allocated, "bytes")
+    print("Free:", free, "bytes")
+
 def measure_time(func):
     """Decorator to measure execution time in milliseconds"""
     def wrapper(*args, **kwargs):
@@ -11,20 +19,15 @@ def measure_time(func):
         result = func(*args, **kwargs)
         end = time.ticks_ms()
         duration = time.ticks_diff(end, start)
-        print(f"{func.__name__} took {duration}ms")
         return result
     return wrapper
 
 def time_operation(operation, *args, performance_summary=None, **kwargs):
     """Helper function to measure individual operation time in milliseconds"""
-    print("\n--- DEBUG: time_operation called ---")
-    print(f"Operation name: {operation.__name__}")
-    print(f"Positional args: {args}")
-    print(f"Keyword args: {kwargs}")
-
     start = time.ticks_ms()
     result = None
     success = False
+    start_memory = gc.mem_alloc()
 
     # Determine operation type for performance tracking
     op_name = operation.__name__
@@ -70,12 +73,13 @@ def time_operation(operation, *args, performance_summary=None, **kwargs):
             performance_summary['query']['result_counts'].append(len(result))
 
     except Exception as e:
-        print(f"Error in {op_name} operation: {e}")
         success = False
         raise
 
     end = time.ticks_ms()
     duration = time.ticks_diff(end, start)
+    end_memory = gc.mem_alloc()
+    memory_used = end_memory - start_memory
 
     # Track performance metrics
     if performance_summary is not None and metric_category in performance_summary:
@@ -85,6 +89,13 @@ def time_operation(operation, *args, performance_summary=None, **kwargs):
         performance_summary[metric_category]['avg_time'] = (
             performance_summary[metric_category]['total_time'] /
             performance_summary[metric_category]['total_ops']
+        )
+
+        # Update memory metrics
+        performance_summary[metric_category]['memory_used'] += memory_used
+        performance_summary[metric_category]['peak_memory'] = max(
+            performance_summary[metric_category]['peak_memory'],
+            end_memory
         )
 
         # Update success/failure metrics
@@ -99,119 +110,72 @@ def time_operation(operation, *args, performance_summary=None, **kwargs):
         if duration > performance_summary[metric_category]['max_time']:
             performance_summary[metric_category]['max_time'] = duration
 
-        print(f"Updated performance metrics for {metric_category}: ops={performance_summary[metric_category]['total_ops']}, time={performance_summary[metric_category]['total_time']}")
-
     return result, duration
 
 @measure_time
 def test_basic_operations(performance_summary, db):
     """Test basic put/get operations"""
-    print("\nTesting basic operations...")
-
     try:
         # Test put
-        print("\nTesting put operation...")
-        result, put_time = time_operation(db.put, {"name": "John", "age": 30}, performance_summary=performance_summary)
-        print(f"Put operation took {put_time}ms")
-        print(f"Put key: {result}")
-
-        # Ensure key is not None
+        result, _ = time_operation(db.put, {"name": "John", "age": 30}, performance_summary=performance_summary)
         if result is None:
             raise ValueError("Put operation failed to return a key")
 
         key = result  # Store the key for later use
 
         # Test get
-        print("\nTesting get operation...")
-        result, get_time = time_operation(db.get, key, performance_summary=performance_summary)
-        print(f"Get operation took {get_time}ms")
-        print(f"Get data: {result}")
-
-        # Ensure result is not None and has expected content
+        result, _ = time_operation(db.get, key, performance_summary=performance_summary)
         if result is None:
             raise ValueError(f"Failed to retrieve data for key {key}")
 
         assert result["name"] == "John" and result["age"] == 30, "Get data mismatch"
 
         # Test delete
-        print("\nTesting delete operation...")
-        result, delete_time = time_operation(db.delete, key, performance_summary=performance_summary)
-        print(f"Delete operation took {delete_time}ms")
-        print(f"Delete count: {result}")
+        result, _ = time_operation(db.delete, key, performance_summary=performance_summary)
         assert result == 1, "Delete count mismatch"
 
         # Verify deletion
-        print("\nVerifying deletion...")
-        result, verify_time = time_operation(db.get, key, performance_summary=performance_summary)
-        print(f"Verify operation took {verify_time}ms")
-        print(f"Get after delete: {result}")
+        result, _ = time_operation(db.get, key, performance_summary=performance_summary)
         assert result is None, "Data still exists after delete"
 
         # Test explicit key with put
-        print("\nTesting put with explicit key...")
-        result, put_time = time_operation(db.put, "test_key", {"name": "Jane", "age": 25}, performance_summary=performance_summary)
-        print(f"Put with explicit key took {put_time}ms")
-        print(f"Put key: {result}")
+        result, _ = time_operation(db.put, "test_key", {"name": "Jane", "age": 25}, performance_summary=performance_summary)
         assert result == "test_key", "Explicit key mismatch"
 
         # Verify data with explicit key
         data = db.get("test_key")
         assert data["name"] == "Jane" and data["age"] == 25, "Explicit key data mismatch"
 
-        print("\nOperation timing summary:")
-        print(f"Put: {put_time}ms")
-        print(f"Get: {get_time}ms")
-        print(f"Delete: {delete_time}ms")
-        print(f"Verify: {verify_time}ms")
     finally:
         del db
 
 @measure_time
 def test_ttl(performance_summary, db):
     """Test TTL functionality"""
-    print("\nTesting TTL...")
-
     try:
         # Store data with 5 second TTL
-        result, put_time = time_operation(db.put, {"name": "John"}, ttl=5, performance_summary=performance_summary)
-        print(f"Put operation took {put_time}ms")
-        print(f"Put with TTL key: {result}")
+        result, _ = time_operation(db.put, {"name": "John"}, ttl=5, performance_summary=performance_summary)
 
         # Verify data exists
-        data, get_time = time_operation(db.get, result, performance_summary=performance_summary)
-        print(f"Get operation took {get_time}ms")
-        print(f"Get before TTL: {data}")
+        data, _ = time_operation(db.get, result, performance_summary=performance_summary)
         assert data is not None, "Data not found before TTL"
 
         # Wait for TTL to expire
         time.sleep(6)
 
         # Force cleanup to ensure expired keys are removed
-        cleanup_start = time.ticks_ms()
         deleted = db.cleanup()
-        cleanup_time = time.ticks_diff(time.ticks_ms(), cleanup_start)
-        print(f"Cleanup operation took {cleanup_time}ms")
-        print(f"Deleted {deleted} expired keys")
 
         # Verify data is gone
-        data, verify_time = time_operation(db.get, result, performance_summary=performance_summary)
-        print(f"Verify operation took {verify_time}ms")
-        print(f"Get after TTL: {data}")
+        data, _ = time_operation(db.get, result, performance_summary=performance_summary)
         assert data is None, "Data still exists after TTL"
 
-        print("\nOperation timing summary:")
-        print(f"Put: {put_time}ms")
-        print(f"Get: {get_time}ms")
-        print(f"Cleanup: {cleanup_time}ms")
-        print(f"Verify: {verify_time}ms")
     finally:
         del db
 
 @measure_time
 def test_batch_operations(performance_summary, db):
     """Test batch operations"""
-    print("\nTesting batch operations...")
-
     try:
         # Test batch put
         batch_items = [
@@ -220,24 +184,17 @@ def test_batch_operations(performance_summary, db):
             {"name": "Item3", "value": 30},
         ]
 
-        print("Testing put_batch operation...")
-        keys, put_time = time_operation(db.put_batch, batch_items, performance_summary=performance_summary)
-        print(f"Batch put operation took {put_time}ms")
-        print(f"Inserted {len(keys)} items with keys: {keys}")
+        keys, _ = time_operation(db.put_batch, batch_items, performance_summary=performance_summary)
         assert len(keys) == 3, "Should insert 3 items"
 
         # Verify the data was inserted correctly
         for i, key in enumerate(keys):
             data = db.get(key)
-            print(f"Retrieved item {i + 1}: {data}")
             assert data["name"] == f"Item{i + 1}", f"Item {i + 1} name incorrect"
             assert data["value"] == (i + 1) * 10, f"Item {i + 1} value incorrect"
 
         # Test batch delete
-        print("Testing delete_batch operation...")
-        deleted, delete_time = time_operation(db.delete_batch, keys[:2], performance_summary=performance_summary)
-        print(f"Batch delete operation took {delete_time}ms")
-        print(f"Deleted {deleted} items")
+        deleted, _ = time_operation(db.delete_batch, keys[:2], performance_summary=performance_summary)
         assert deleted == 2, "Should delete 2 items"
 
         # Verify deletion
@@ -246,30 +203,25 @@ def test_batch_operations(performance_summary, db):
         assert db.get(keys[2]) is not None, "Third item should still exist"
 
         # Test batch put with TTLs
-        batch_items_ttl = [
-            {"name": "TTL1", "value": 100},
-            {"name": "TTL2", "value": 200},
+        ttl_batch = [
+            {"name": f"TTL{i}", "value": i * 100} for i in range(10)
         ]
-        ttls = [5, 10]  # 5 and 10 second TTLs
+        ttls = [5 + (i % 5) for i in range(10)]  # TTLs between 5-10 seconds
 
-        keys_ttl, put_time = time_operation(db.put_batch, batch_items_ttl, ttls=ttls, performance_summary=performance_summary)
-        print(f"Batch put with TTL operation took {put_time}ms")
-        print(f"Inserted {len(keys_ttl)} items with TTLs")
+        keys_ttl, _ = time_operation(db.put_batch, ttl_batch, ttls=ttls, performance_summary=performance_summary)
 
         # Verify TTL items were inserted
         for i, key in enumerate(keys_ttl):
             data = db.get(key)
-            assert data["name"] == f"TTL{i+1}", f"TTL item {i+1} name incorrect"
+            assert data["name"] == f"TTL{i}", f"TTL item {i} name incorrect"
+            assert data["value"] == i * 100, f"TTL item {i} value incorrect"
 
-        print("Batch operations tests passed")
     finally:
         del db
 
 @measure_time
 def test_query_operators(performance_summary, db):
     """Test query operators"""
-    print("\nTesting query operators...")
-
     try:
         # Store test data
         test_data = [
@@ -282,18 +234,9 @@ def test_query_operators(performance_summary, db):
 
         # Measure put operations
         keys = []
-        put_times = []
         for data in test_data:
-            try:
-                result, put_time = time_operation(db.put, data, performance_summary=performance_summary)
-                keys.append(result)
-                put_times.append(put_time)
-                print(f"Successfully put data: {data}")
-            except Exception as e:
-                print(f"Error putting data: {e}")
-                put_time = 0
-                put_times.append(put_time)
-        print(f"Average put time: {sum(put_times) / len(put_times)}ms")
+            result, _ = time_operation(db.put, data, performance_summary=performance_summary)
+            keys.append(result)
 
         # Test various query operators with timing
         query_tests = [
@@ -314,35 +257,21 @@ def test_query_operators(performance_summary, db):
             ("Query with limit", {"age": {"$gt": 0}, "$limit": 2}),
         ]
 
-        print("\nQuery operator timing:")
         for op_name, query_dict in query_tests:
-            try:
-                print(f"\nExecuting {op_name} query with: {query_dict}")
-                result, query_time = time_operation(db.query, query_dict, performance_summary=performance_summary)
-                print(f"{op_name} query took {query_time}ms")
+            result, _ = time_operation(db.query, query_dict, performance_summary=performance_summary)
+            
+            if not isinstance(result, list):
+                result = list(result)
 
-                if not isinstance(result, list):
-                    result = list(result)
-
-                print(f"{op_name} results count: {len(result)}")
-                if len(result) > 0:
-                    print(f"First result: {result[0]}")
-                else:
-                    print("No results")
-
-                # Add specific assertions for certain queries
-                if op_name == "$eq - Simple equality":
-                    assert len(result) == 1 and result[0]["name"] == "John", "Simple equality query failed"
-                elif op_name == "$gt - Greater than":
-                    assert all(doc["age"] > 30 for doc in result), "Greater than query failed"
-                elif op_name == "Query with limit":
-                    assert len(result) <= 2, "Limit query failed"
-                elif op_name == "Tag query":
-                    assert all("premium" in doc.get("_tags", []) for doc in result), "Tag query failed"
-
-            except Exception as e:
-                print(f"Error executing {op_name} query: {e}")
-                print(f"Query that caused error: {query_dict}")
+            # Add specific assertions for certain queries
+            if op_name == "$eq - Simple equality":
+                assert len(result) == 1 and result[0]["name"] == "John", "Simple equality query failed"
+            elif op_name == "$gt - Greater than":
+                assert all(doc["age"] > 30 for doc in result), "Greater than query failed"
+            elif op_name == "Query with limit":
+                assert len(result) <= 2, "Limit query failed"
+            elif op_name == "Tag query":
+                assert all("premium" in doc.get("_tags", []) for doc in result), "Tag query failed"
 
         # Clean up
         for key in keys:
@@ -351,12 +280,166 @@ def test_query_operators(performance_summary, db):
     finally:
         del db
 
+@measure_time
+def test_large_batch_operations(performance_summary, db):
+    """Test large batch operations with various data types and sizes"""
+    try:
+        # Generate smaller batch of varied data to avoid memory issues
+        large_batch = []
+        for i in range(20):  # Reduced from 50 to 20 items
+            item = {
+                "id": i,
+                "name": f"Item{i}",
+                "value": i * 10,
+                "tags": ["batch", "large"] + (["premium"] if i % 3 == 0 else []),
+                "metadata": {
+                    "created": time.time(),
+                    "version": f"1.{i}",
+                    "flags": [f"flag{j}" for j in range(i % 3)],  # Reduced array size
+                    "active": i % 2 == 0
+                },
+                "scores": [j * 10 for j in range(i % 5)],  # Reduced array size
+                "description": "x" * (i * 5)  # Reduced string size
+            }
+            large_batch.append(item)
+
+        # Test large batch put
+        keys, _ = time_operation(db.put_batch, large_batch, performance_summary=performance_summary)
+
+        # Verify data integrity
+        for i, key in enumerate(keys):
+            data = db.get(key)
+            assert data["id"] == i, f"Item {i} id mismatch"
+            assert data["name"] == f"Item{i}", f"Item {i} name mismatch"
+            assert len(data["tags"]) >= 2, f"Item {i} missing base tags"
+
+        # Test batch operations with TTLs
+        ttl_batch = [
+            {"name": f"TTL{i}", "value": i * 100} for i in range(10)
+        ]
+        ttls = [5 + (i % 5) for i in range(10)]  # TTLs between 5-10 seconds
+
+        keys_ttl, _ = time_operation(db.put_batch, ttl_batch, ttls=ttls, performance_summary=performance_summary)
+
+        # Test batch delete with partial keys
+        deleted, _ = time_operation(db.delete_batch, keys[::2], performance_summary=performance_summary)
+
+        # Verify partial deletion
+        for i, key in enumerate(keys):
+            data = db.get(key)
+            if i % 2 == 0:
+                assert data is None, f"Item {i} should be deleted"
+            else:
+                assert data is not None, f"Item {i} should still exist"
+
+    finally:
+        del db
+
+@measure_time
+def test_advanced_querying(performance_summary, db):
+    """Test advanced query patterns and combinations"""
+    try:
+        print("\nMemory before test_advanced_querying:")
+        show_memory()
+        
+        # Generate smaller test data
+        test_data = []
+        for i in range(5):  # Reduced from 10 to 5 items
+            item = {
+                "id": i,
+                "name": f"User{i}",
+                "age": 20 + (i % 20),
+                "tags": ["user"] + (["premium"] if i % 3 == 0 else []),
+                "profile": {
+                    "level": 1 + (i % 3),
+                    "active": i % 2 == 0
+                },
+                "metadata": {
+                    "status": "active" if i % 2 == 0 else "inactive"
+                }
+            }
+            test_data.append(item)
+            if i % 2 == 0:
+                print(f"\nMemory after creating item {i}:")
+                show_memory()
+
+        # Store test data
+        keys = []
+        for i, data in enumerate(test_data):
+            print(f"\nMemory before storing item {i}:")
+            show_memory()
+            result, _ = time_operation(db.put, data, performance_summary=performance_summary)
+            keys.append(result)
+            print(f"Memory after storing item {i}:")
+            show_memory()
+
+        # Test simpler query patterns
+        complex_queries = [
+            ("Simple equality", {"name": "User0"}),
+            ("Numeric comparison", {"age": {"$gt": 25}}),
+            ("Tag query", {"tags": "premium"}),
+            ("Nested field", {"profile.active": True}),
+            ("Multiple conditions", {
+                "age": {"$gt": 20},
+                "profile.level": {"$gt": 1}
+            })
+        ]
+
+        for i, (query_name, query_dict) in enumerate(complex_queries):
+            print(f"\nMemory before query {i}:")
+            show_memory()
+            result, _ = time_operation(db.query, query_dict, performance_summary=performance_summary)
+            print(f"Memory after query {i}:")
+            show_memory()
+            
+            if not isinstance(result, list):
+                result = list(result)
+            
+            # Add specific assertions for certain queries
+            if "Simple equality" in query_name:
+                assert len(result) == 1 and result[0]["name"] == "User0", "Simple equality query failed"
+            elif "Numeric comparison" in query_name:
+                assert all(doc["age"] > 25 for doc in result), "Age comparison failed"
+            elif "Tag query" in query_name:
+                assert all("premium" in doc["tags"] for doc in result), "Tag query failed"
+
+        # Clean up
+        print("\nMemory before cleanup:")
+        show_memory()
+        for key in keys:
+            db.delete(key)
+        print("Memory after cleanup:")
+        show_memory()
+
+    finally:
+        del db
+        gc.collect()
+        print("\nMemory after test completion:")
+        show_memory()
+
+def format_memory_size(bytes_value):
+    """Convert bytes to human readable format (KB/MB)"""
+    if bytes_value is None:
+        return "N/A"
+    if bytes_value < 1024:
+        return f"{bytes_value} B"
+    elif bytes_value < 1024 * 1024:
+        return f"{bytes_value/1024:.1f} KB"
+    else:
+        return f"{bytes_value/(1024*1024):.1f} MB"
 
 def run_tests(db):
     """Run all tests with specified DB instance"""
     # Determine storage type for reporting
     storage_type = "memory" if getattr(db, 'in_memory', False) else "file"
     print(f"\nRunning tests with {storage_type} storage...")
+
+    # Initialize memory tracking
+    initial_memory = {
+        "total": gc.mem_free() + gc.mem_alloc(),
+        "used": gc.mem_alloc(),
+        "free": gc.mem_free()
+    }
 
     performance_summary = {
         "put": {
@@ -366,7 +449,9 @@ def run_tests(db):
             "success_count": 0,
             "failure_count": 0,
             "min_time": float('inf'),
-            "max_time": 0
+            "max_time": 0,
+            "memory_used": 0,
+            "peak_memory": 0
         },
         "get": {
             "total_time": 0,
@@ -375,7 +460,9 @@ def run_tests(db):
             "success_count": 0,
             "failure_count": 0,
             "min_time": float('inf'),
-            "max_time": 0
+            "max_time": 0,
+            "memory_used": 0,
+            "peak_memory": 0
         },
         "delete": {
             "total_time": 0,
@@ -384,7 +471,9 @@ def run_tests(db):
             "success_count": 0,
             "failure_count": 0,
             "min_time": float('inf'),
-            "max_time": 0
+            "max_time": 0,
+            "memory_used": 0,
+            "peak_memory": 0
         },
         "batch_put": {
             "total_time": 0,
@@ -395,7 +484,9 @@ def run_tests(db):
             "min_time": float('inf'),
             "max_time": 0,
             "total_items": 0,
-            "avg_items_per_batch": 0
+            "avg_items_per_batch": 0,
+            "memory_used": 0,
+            "peak_memory": 0
         },
         "batch_delete": {
             "total_time": 0,
@@ -406,7 +497,9 @@ def run_tests(db):
             "min_time": float('inf'),
             "max_time": 0,
             "total_items": 0,
-            "avg_items_per_batch": 0
+            "avg_items_per_batch": 0,
+            "memory_used": 0,
+            "peak_memory": 0
         },
         "query": {
             "total_time": 0,
@@ -416,41 +509,65 @@ def run_tests(db):
             "failure_count": 0,
             "min_time": float('inf'),
             "max_time": 0,
-            "result_counts": []
+            "result_counts": [],
+            "memory_used": 0,
+            "peak_memory": 0
         }
     }
 
     try:
-        print(f"Starting tests with {storage_type} storage...")
         total_start_time = time.ticks_ms()
+        peak_memory_used = 0
 
         def run_test_with_perf(test_func, db):
+            nonlocal peak_memory_used
             test_func(performance_summary, db)
             gc.collect()
+            # Update peak memory after each test
+            current_memory = gc.mem_alloc()
+            peak_memory_used = max(peak_memory_used, current_memory)
 
         # Run tests
         run_test_with_perf(test_basic_operations, db)
         run_test_with_perf(test_ttl, db)
         run_test_with_perf(test_batch_operations, db)
         run_test_with_perf(test_query_operators, db)
+        run_test_with_perf(test_large_batch_operations, db)
+        run_test_with_perf(test_advanced_querying, db)
 
         total_end_time = time.ticks_ms()
         total_test_time = time.ticks_diff(total_end_time, total_start_time) / 1000  # Convert to seconds
+
+        # Calculate final memory stats
+        final_memory = {
+            "total": gc.mem_free() + gc.mem_alloc(),
+            "used": gc.mem_alloc(),
+            "free": gc.mem_free()
+        }
 
         # Print performance summary
         print(f"\n{'=' * 80}")
         print(f"PERFORMANCE SUMMARY FOR {storage_type.upper()} STORAGE")
         print(f"{'=' * 80}")
 
+        print("\nMEMORY USAGE SUMMARY:")
+        print(f"{'Metric':<20} {'Initial':<15} {'Final':<15} {'Change':<15}")
+        print("-" * 65)
+        print(f"{'Total Memory':<20} {format_memory_size(initial_memory['total']):<15} {format_memory_size(final_memory['total']):<15} {format_memory_size(final_memory['total'] - initial_memory['total']):<15}")
+        print(f"{'Used Memory':<20} {format_memory_size(initial_memory['used']):<15} {format_memory_size(final_memory['used']):<15} {format_memory_size(final_memory['used'] - initial_memory['used']):<15}")
+        print(f"{'Free Memory':<20} {format_memory_size(initial_memory['free']):<15} {format_memory_size(final_memory['free']):<15} {format_memory_size(final_memory['free'] - initial_memory['free']):<15}")
+        print(f"{'Peak Memory Used':<20} {'N/A':<15} {format_memory_size(peak_memory_used):<15} {format_memory_size(peak_memory_used - initial_memory['used']):<15}")
+
         print("\nBASIC OPERATION METRICS:")
-        print(f"{'Operation':<15} {'Total Ops':<15} {'Total Time(ms)':<15} {'Avg Time(ms)':<15} {'Min Time(ms)':<15} {'Max Time(ms)':<15}")
-        print("-" * 90)
+        print(f"{'Operation':<15} {'Total Ops':<15} {'Total Time(ms)':<15} {'Avg Time(ms)':<15} {'Min Time(ms)':<15} {'Max Time(ms)':<15} {'Memory Used':<15}")
+        print("-" * 105)
 
         for op, metrics in performance_summary.items():
             min_time = metrics['min_time'] if metrics['min_time'] != float('inf') else 0
             max_time = metrics['max_time']
             avg_time = metrics['avg_time'] if metrics['total_ops'] > 0 else 0
-            print(f"{op:<15} {metrics['total_ops']:<15} {metrics['total_time']:<15} {avg_time:<15} {min_time:<15} {max_time:<15}")
+            memory_used = metrics.get('memory_used', 0)
+            print(f"{op:<15} {metrics['total_ops']:<15} {metrics['total_time']:<15} {avg_time:<15} {min_time:<15} {max_time:<15} {format_memory_size(memory_used):<15}")
 
         print("\nSUCCESS RATE METRICS:")
         print(f"{'Operation':<15} {'Success Count':<15} {'Failure Count':<15} {'Success Rate(%)':<15}")
@@ -465,15 +582,16 @@ def run_tests(db):
 
         if performance_summary['batch_put']['total_ops'] > 0 or performance_summary['batch_delete']['total_ops'] > 0:
             print("\nBATCH OPERATION METRICS:")
-            print(f"{'Operation':<15} {'Total Batches':<20} {'Total Items':<20} {'Avg Items/Batch':<20}")
-            print("-" * 75)
+            print(f"{'Operation':<15} {'Total Batches':<20} {'Total Items':<20} {'Avg Items/Batch':<20} {'Memory Used':<15}")
+            print("-" * 90)
 
             for op in ['batch_put', 'batch_delete']:
                 metrics = performance_summary[op]
                 total_batches = metrics['total_ops']
                 total_items = metrics.get('total_items', 0)
                 avg_items = metrics.get('avg_items_per_batch', 0)
-                print(f"{op:<15} {total_batches:<20} {total_items:<20} {avg_items:<20.2f}")
+                memory_used = metrics.get('memory_used', 0)
+                print(f"{op:<15} {total_batches:<20} {total_items:<20} {avg_items:<20.2f} {format_memory_size(memory_used):<15}")
 
         if performance_summary['query']['result_counts']:
             result_counts = performance_summary['query']['result_counts']
@@ -481,6 +599,7 @@ def run_tests(db):
             print(f"Average results per query: {sum(result_counts) / len(result_counts) if result_counts else 0:.2f}")
             print(f"Minimum results: {min(result_counts) if result_counts else 0}")
             print(f"Maximum results: {max(result_counts) if result_counts else 0}")
+            print(f"Memory used per query: {format_memory_size(performance_summary['query'].get('memory_used', 0) / len(result_counts) if result_counts else 0)}")
 
         print(f"\nTotal Test Execution Time: {total_test_time:.2f} seconds")
         print(f"{'=' * 80}")
@@ -497,12 +616,22 @@ def main():
 
     # Run file-backed tests first
     print("\nRunning with file DB...")
-    with MicroTetherDB(filename="test.db", in_memory=False) as file_db:
+    with MicroTetherDB(
+        filename="test.db",
+        in_memory=False,
+        ram_percentage=25,  # Increased from default 15% to 25%
+        adaptive_threshold=True
+    ) as file_db:
         file_performance = run_tests(file_db)
 
     # Run memory-backed tests
     print("\nRunning with in-memory DB...")
-    with MicroTetherDB(filename="mem.db", in_memory=True) as mem_db:
+    with MicroTetherDB(
+        filename="mem.db",
+        in_memory=True,
+        ram_percentage=25,  # Increased from default 15% to 25%
+        adaptive_threshold=True
+    ) as mem_db:
         memory_performance = run_tests(mem_db)
 
     # Compare results

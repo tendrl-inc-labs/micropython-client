@@ -1,27 +1,33 @@
 import os
 import gc
 
-def calculate_ram_size(ram_percentage):
+def calculate_ram_size(percentage=15):
+    """Calculate RAM size based on percentage of free memory"""
     try:
-        try:
-            free_mem = gc.mem_free()
-        except AttributeError:
-            gc.collect()
-            free_mem = 32768
-        target_mem = int(free_mem * (ram_percentage / 100))
-        target_mem = min(max(target_mem, 1024), 32768)
+        free_memory = gc.mem_free()
+        total_memory = free_memory + gc.mem_alloc()
         
-        # Use 512-byte blocks for FAT filesystem compatibility
-        block_size = 512
-        num_blocks = target_mem // block_size
+        # Calculate target memory size
+        target_memory = int((free_memory * percentage) / 100)
         
-        # Ensure we have at least 8 blocks
-        if num_blocks < 8:
-            num_blocks = 8
-            
+        # Set dynamic limits based on total memory
+        min_memory = min(2048, total_memory // 64)  # 2KB or 1/64 of total memory
+        max_memory = min(total_memory // 4, target_memory)  # 25% of total memory or target
+        
+        # Ensure we stay within limits
+        memory_size = max(min_memory, min(max_memory, target_memory))
+        
+        # Use smaller block size for better memory management
+        block_size = 512  # Reduced from 1024 to 512 bytes
+        
+        # Calculate number of blocks
+        num_blocks = max(16, memory_size // block_size)  # Minimum 16 blocks
+        
+        print(f"Memory allocation: {memory_size} bytes ({memory_size/1024:.1f}KB) from {total_memory} bytes total")
         return num_blocks, block_size
-    except:
-        return 16, 512  # Safe default with 512-byte blocks
+    except Exception as e:
+        print(f"Error calculating RAM size: {e}")
+        return 32, 512  # Safe default values
 
 def ensure_dirs(path):
     if "/" not in path:

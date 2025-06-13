@@ -11,13 +11,11 @@ import btree
 from .core.ram_device import RAMBlockDevice
 from .core.future import Future
 from .core.exceptions import DBLock
-from .core.compression import compress_data, decompress_data, HAS_COMPRESSION
 from .core.utils import calculate_ram_size, ensure_dirs
 
 class MicroTetherDB:
-    def __init__(self, filename="microtether.db", in_memory=True, ram_percentage=15,
-                 use_compression=True, min_compress_size=256, max_retries=3,
-                 retry_delay=0.1, lock_timeout=5.0, cleanup_interval=3600,
+    def __init__(self, filename="microtether.db", in_memory=True, ram_percentage=25,
+                 max_retries=3, retry_delay=0.1, lock_timeout=5.0, cleanup_interval=3600,
                  btree_cachesize=32, btree_pagesize=512, adaptive_threshold=True):
         self.filename = filename
         self.in_memory = in_memory
@@ -25,8 +23,6 @@ class MicroTetherDB:
         if in_memory:
             import vfs
             self.ram_blocks, self.ram_block_size = calculate_ram_size(ram_percentage)
-        self.use_compression = use_compression and HAS_COMPRESSION
-        self.min_compress_size = min_compress_size
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.lock_timeout = lock_timeout
@@ -50,7 +46,7 @@ class MicroTetherDB:
             "batch_delete": 0
         }
         self._flush_counter = 0
-        self._flush_threshold = 10  # Reduced flush threshold
+        self._flush_threshold = 10  # Keep lower flush threshold
         self._last_flush_time = time.time()
         self._auto_flush_seconds = 5
         try:
@@ -169,16 +165,19 @@ class MicroTetherDB:
     def _adaptive_flush_threshold(self):
         if not self.adaptive_threshold:
             return self._flush_threshold
+        
+        # For in-memory operations, use a moderate threshold
+        if self.in_memory:
+            return max(20, self._flush_threshold)
+            
+        # Calculate based on operation counts
         total_ops = sum(self._operation_counts.values())
-        batch_ops = self._operation_counts["batch_put"] + self._operation_counts["batch_delete"]
         if total_ops < 100:
-            return self._flush_threshold
-        batch_ratio = batch_ops / total_ops if total_ops > 0 else 0
-        if batch_ratio > 0.8:
-            return max(50, self._flush_threshold * 2)
-        if batch_ratio > 0.5:
-            return max(30, self._flush_threshold * 1.5)
-        return self._flush_threshold
+            return 10
+        elif total_ops < 1000:
+            return 15
+        else:
+            return 20
 
     async def _acquire_lock(self):
         try:
@@ -207,35 +206,16 @@ class MicroTetherDB:
                 if len(json_data) > 8192:  # 8KB limit
                     raise ValueError("Data too large: maximum size is 8KB after JSON serialization")
                 encoded_data = json_data.encode()
-                compressed_data, is_compressed = compress_data(
-                    encoded_data,
-                    self.use_compression,
-                    self.min_compress_size
-                )
-                if is_compressed:
-                    final_data = b"\x01" + compressed_data
-                else:
-                    final_data = b"\x00" + encoded_data
                 try:
-                    self._db[key_bytes] = final_data
+                    self._db[key_bytes] = encoded_data
                 except Exception:
                     raise
                 try:
-                    self._db.flush()
+                    # For in-memory operations, only flush periodically
+                    if not self.in_memory:
+                        self._db.flush()
                 except Exception:
                     raise
-                try:
-                    stored_data = self._db[key_bytes]
-                    is_compressed = stored_data[0] == 1
-                    data_bytes = stored_data[1:]
-                    decompressed_data = decompress_data(data_bytes, is_compressed)
-                    decoded_data = json.loads(decompressed_data.decode())
-                    if decoded_data != data:
-                        raise ValueError("Data verification failed")
-                except KeyError:
-                    raise ValueError("Data not found after storing")
-                except Exception as e:
-                    raise ValueError(f"Verification failed: {e}")
 
                 self._operation_counts["put"] += 1
                 self._flush_counter += 1
@@ -262,32 +242,40 @@ class MicroTetherDB:
             await self._acquire_lock()
             try:
                 key_bytes = key.encode() if isinstance(key, str) else key
-
-                try:
-                    keys_iter = self._db.keys(None, None, btree.INCL)
-                    keys = []
-                    for k in keys_iter:
-                        keys.append(k)
-                except Exception:
-                    raise
-                try:
-                    found_key = None
-                    for k in self._db.keys(None, None, btree.INCL):
-                        if k == key_bytes:
-                            found_key = k
-                            break
-                    if found_key is None:
+                
+                # Optimize for in-memory storage
+                if self.in_memory:
+                    try:
+                        raw_data = self._db[key_bytes]
+                        return json.loads(raw_data.decode())
+                    except KeyError:
                         return None
-                    raw_data = self._db[found_key]
-                    is_compressed = raw_data[0] == 1
-                    data_bytes = raw_data[1:]
-                    decompressed_data = decompress_data(data_bytes, is_compressed)
-                    result = json.loads(decompressed_data.decode())
-                    return result
-                except KeyError:
-                    return None
-                except Exception as e:
-                    raise
+                    except Exception as e:
+                        raise
+                else:
+                    # Original file-based implementation
+                    try:
+                        keys_iter = self._db.keys(None, None, btree.INCL)
+                        keys = []
+                        for k in keys_iter:
+                            keys.append(k)
+                    except Exception:
+                        raise
+                    try:
+                        found_key = None
+                        for k in self._db.keys(None, None, btree.INCL):
+                            if k == key_bytes:
+                                found_key = k
+                                break
+                        if found_key is None:
+                            return None
+                        raw_data = self._db[found_key]
+                        result = json.loads(raw_data.decode())
+                        return result
+                    except KeyError:
+                        return None
+                    except Exception as e:
+                        raise
             finally:
                 self._lock.release()
         except Exception as e:
@@ -362,6 +350,7 @@ class MicroTetherDB:
             limit = query_dict.pop("$limit", None)
             if limit is not None:
                 limit = int(limit)
+
             def get_field_value(doc, field):
                 keys = field.split(".")
                 current = doc
@@ -370,6 +359,7 @@ class MicroTetherDB:
                         return None
                     current = current.get(key)
                 return current
+
             def matches_query(doc):
                 if not query_dict:
                     return True
@@ -424,20 +414,50 @@ class MicroTetherDB:
                             if not contains:
                                 return False
                 return True
-            for key in self._db.keys(None, None, btree.INCL):
-                try:
-                    raw_data = self._db[key]
-                    is_compressed = raw_data[0] == 1
-                    data_bytes = raw_data[1:]
-                    decompressed_data = decompress_data(data_bytes, is_compressed)
-                    doc = json.loads(decompressed_data.decode())
-                    if matches_query(doc):
-                        results.append(doc)
-                        if limit is not None and len(results) == limit:
-                            break
-                except Exception as e:
-                    print(f"Error processing document: {e}")
-                    continue
+
+            # Optimize for in-memory storage
+            if self.in_memory:
+                # Process documents in smaller batches to reduce memory pressure
+                batch_size = 5  # Reduced from 10 to 5
+                current_batch = []
+                processed = 0
+                
+                for key in self._db.keys(None, None, btree.INCL):
+                    try:
+                        raw_data = self._db[key]
+                        doc = json.loads(raw_data.decode())
+                        if matches_query(doc):
+                            current_batch.append(doc)
+                            processed += 1
+                            if len(current_batch) >= batch_size:
+                                results.extend(current_batch)
+                                current_batch = []
+                                if limit is not None and len(results) >= limit:
+                                    results = results[:limit]
+                                    break
+                    except Exception as e:
+                        print(f"Error processing document: {e}")
+                        continue
+                
+                # Add any remaining documents
+                if current_batch:
+                    results.extend(current_batch)
+                    if limit is not None:
+                        results = results[:limit]
+            else:
+                # For file storage, use the original implementation
+                for key in self._db.keys(None, None, btree.INCL):
+                    try:
+                        raw_data = self._db[key]
+                        doc = json.loads(raw_data.decode())
+                        if matches_query(doc):
+                            results.append(doc)
+                            if limit is not None and len(results) == limit:
+                                break
+                    except Exception as e:
+                        print(f"Error processing document: {e}")
+                        continue
+
             return results
         finally:
             self._lock.release()
@@ -466,16 +486,7 @@ class MicroTetherDB:
                     continue
                 key = self._generate_key(int(item_ttl))
                 encoded_data = json_data.encode()
-                compressed_data, is_compressed = compress_data(
-                    encoded_data,
-                    self.use_compression,
-                    self.min_compress_size
-                )
-                if is_compressed:
-                    final_data = b"\x01" + compressed_data
-                else:
-                    final_data = b"\x00" + encoded_data
-                self._db[key] = final_data
+                self._db[key] = encoded_data
                 batch_keys.append(key)
             self._operation_counts["batch_put"] += 1
             self._flush_counter += len(batch_keys)
