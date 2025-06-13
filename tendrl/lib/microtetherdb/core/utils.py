@@ -10,14 +10,18 @@ def calculate_ram_size(ram_percentage):
             free_mem = 32768
         target_mem = int(free_mem * (ram_percentage / 100))
         target_mem = min(max(target_mem, 1024), 32768)
-        block_size = min(256, target_mem // 16)
+        
+        # Use 512-byte blocks for FAT filesystem compatibility
+        block_size = 512
         num_blocks = target_mem // block_size
+        
+        # Ensure we have at least 8 blocks
         if num_blocks < 8:
-            block_size = target_mem // 8
             num_blocks = 8
+            
         return num_blocks, block_size
     except:
-        return 16, 128
+        return 16, 512  # Safe default with 512-byte blocks
 
 def ensure_dirs(path):
     if "/" not in path:

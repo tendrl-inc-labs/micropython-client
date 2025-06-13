@@ -4,6 +4,7 @@ import gc
 import json
 import random
 import time
+import os
 
 import btree
 
@@ -14,13 +15,15 @@ from .core.compression import compress_data, decompress_data, HAS_COMPRESSION
 from .core.utils import calculate_ram_size, ensure_dirs
 
 class MicroTetherDB:
-    def __init__(self, filename="microtetherdb.db", in_memory=True, ram_percentage=15,
+    def __init__(self, filename="microtether.db", in_memory=True, ram_percentage=15,
                  use_compression=True, min_compress_size=256, max_retries=3,
                  retry_delay=0.1, lock_timeout=5.0, cleanup_interval=3600,
                  btree_cachesize=32, btree_pagesize=512, adaptive_threshold=True):
         self.filename = filename
         self.in_memory = in_memory
+        self.ram_percentage = ram_percentage
         if in_memory:
+            import vfs
             self.ram_blocks, self.ram_block_size = calculate_ram_size(ram_percentage)
         self.use_compression = use_compression and HAS_COMPRESSION
         self.min_compress_size = min_compress_size
@@ -67,41 +70,53 @@ class MicroTetherDB:
         try:
             gc.collect()
             if self.in_memory:
+                import vfs
+                print(f"Initializing in-memory database with ram_percentage={self.ram_percentage}")
+                print(f"Calculated ram_blocks={self.ram_blocks}, ram_block_size={self.ram_block_size}")
                 # Force cleanup from previous instances
                 if self._ram_device:
                     try:
-                        self._ram_device.umount()
-                    except Exception:
-                        pass
+                        self._ram_device.umount("/mtdb-ram")
+                    except Exception as e:
+                        print(f"Warning: Error during cleanup: {e}")
                     self._ram_device = None
                 gc.collect()
-
                 self._ram_device = RAMBlockDevice(
-                    blocks=self.ram_blocks,
-                    block_size=self.ram_block_size
+                    block_size=self.ram_block_size,
+                    block_count=self.ram_blocks
                 )
-                self._ram_device.mount()
-                db_path = self._ram_device.get_db_path()
-                try:
-                    self._db_handle = open(db_path, "r+b")
-                except OSError:
-                    self._db_handle = open(db_path, "w+b")
+                # Mount the filesystem
+                self._ram_device.mount("/mtdb-ram")
+                db_path = "/mtdb-ram/microtether.db"
             else:
+                # File-based storage initialization
+                print(f"Initializing file-based database at {self.filename}")
                 ensure_dirs(self.filename)
+                db_path = self.filename
+            try:
+                self._db_handle = open(db_path, "r+b")
+            except OSError:
+                self._db_handle = open(db_path, "w+b")
+            try:
+                self._db = btree.open(
+                    self._db_handle,
+                    cachesize=self.btree_cachesize,
+                    pagesize=self.btree_pagesize
+                )
                 try:
-                    self._db_handle = open(self.filename, "r+b")
-                except OSError:
-                    self._db_handle = open(self.filename, "w+b")
-
-            self._db = btree.open(
-                self._db_handle,
-                cachesize=self.btree_cachesize,
-                pagesize=self.btree_pagesize
-            )
+                    next(self._db.keys(None, None, btree.INCL))
+                except StopIteration:
+                    pass
+                except Exception as e:
+                    print(f"Warning: Database verification failed: {e}")
+            except Exception as e:
+                print(f"Error creating btree database: {e}")
+                raise
             self._loop.run_until_complete(self._cleanup())
         except Exception as e:
             print(f"Error initializing database: {e}")
             raise
+
     def _start_worker(self):
         if self._running:
             return
@@ -167,79 +182,160 @@ class MicroTetherDB:
 
     async def _acquire_lock(self):
         try:
-            await asyncio.wait_for(self._lock.acquire(), self.lock_timeout)
+            if self._lock.locked():
+                raise DBLock("Database is already locked")
+            await self._lock.acquire()
         except asyncio.TimeoutError:
             raise DBLock("Database is locked. Operation timed out.")
+        except Exception as e:
+            raise DBLock(f"Failed to acquire lock: {str(e)}")
 
     async def _put(self, data, ttl=None, tags=None, _id=None):
-        await self._acquire_lock()
         try:
-            if _id is None:
-                key = self._generate_key(ttl)
-                while key in self._db:
+            await self._acquire_lock()
+            try:
+                if _id is None:
                     key = self._generate_key(ttl)
-            else:
-                key = str(_id)
-            if tags:
-                data["_tags"] = tags
-            json_data = json.dumps(data)
-            if len(json_data) > 1024:
-                raise ValueError("Data too large")
-            encoded_data = json_data.encode()
-            compressed_data, is_compressed = compress_data(
-                encoded_data,
-                self.use_compression,
-                self.min_compress_size
-            )
-            if is_compressed:
-                final_data = b"\x01" + compressed_data
-            else:
-                final_data = b"\x00" + encoded_data
-            self._db[key] = final_data
-            self._operation_counts["put"] += 1
-            self._flush_counter += 1
-            current_time = time.time()
-            effective_threshold = self._adaptive_flush_threshold()
-            should_flush = (
-                self._flush_counter >= effective_threshold or
-                current_time - self._last_flush_time >= self._auto_flush_seconds
-            )
-            if should_flush:
-                self._db.flush()
-                self._flush_counter = 0
-                self._last_flush_time = current_time
-            return key
-        finally:
-            self._lock.release()
+                    while key in self._db:
+                        key = self._generate_key(ttl)
+                else:
+                    key = str(_id)
+                key_bytes = key.encode()
+                if tags:
+                    data["_tags"] = tags
+                json_data = json.dumps(data)
+                if len(json_data) > 1024:
+                    raise ValueError("Data too large")
+                encoded_data = json_data.encode()
+                compressed_data, is_compressed = compress_data(
+                    encoded_data,
+                    self.use_compression,
+                    self.min_compress_size
+                )
+                if is_compressed:
+                    final_data = b"\x01" + compressed_data
+                else:
+                    final_data = b"\x00" + encoded_data
+                try:
+                    self._db[key_bytes] = final_data
+                except Exception:
+                    raise
+                try:
+                    self._db.flush()
+                except Exception:
+                    raise
+                try:
+                    stored_data = self._db[key_bytes]
+                    is_compressed = stored_data[0] == 1
+                    data_bytes = stored_data[1:]
+                    decompressed_data = decompress_data(data_bytes, is_compressed)
+                    decoded_data = json.loads(decompressed_data.decode())
+                    if decoded_data != data:
+                        raise ValueError("Data verification failed")
+                except KeyError:
+                    raise ValueError("Data not found after storing")
+                except Exception as e:
+                    raise ValueError(f"Verification failed: {e}")
+
+                self._operation_counts["put"] += 1
+                self._flush_counter += 1
+                current_time = time.time()
+                effective_threshold = self._adaptive_flush_threshold()
+                should_flush = (
+                    self._flush_counter >= effective_threshold or
+                    current_time - self._last_flush_time >= self._auto_flush_seconds
+                )
+                if should_flush:
+                    self._db.flush()
+                    self._flush_counter = 0
+                    self._last_flush_time = current_time
+                return key
+            finally:
+                self._lock.release()
+        except Exception as e:
+            raise
 
     async def _get(self, key):
-        await self._acquire_lock()
+        if not self._db or not self._db_handle:
+            return None
         try:
-            if not isinstance(key, str):
-                key = str(key)
-            if key not in self._db:
+            await self._acquire_lock()
+            try:
+                key_bytes = key.encode() if isinstance(key, str) else key
+
+                try:
+                    keys_iter = self._db.keys(None, None, btree.INCL)
+                    keys = []
+                    for k in keys_iter:
+                        keys.append(k)
+                except Exception:
+                    raise
+                try:
+                    found_key = None
+                    for k in self._db.keys(None, None, btree.INCL):
+                        if k == key_bytes:
+                            found_key = k
+                            break
+                    if found_key is None:
+                        return None
+                    raw_data = self._db[found_key]
+                    is_compressed = raw_data[0] == 1
+                    data_bytes = raw_data[1:]
+                    decompressed_data = decompress_data(data_bytes, is_compressed)
+                    result = json.loads(decompressed_data.decode())
+                    return result
+                except KeyError:
+                    return None
+                except Exception as e:
+                    raise
+            finally:
+                self._lock.release()
+        except Exception as e:
+            if isinstance(e, DBLock):
                 return None
-            raw_data = self._db[key]
-            is_compressed = raw_data[0] == 1
-            data_bytes = raw_data[1:]
-            decompressed_data = decompress_data(data_bytes, is_compressed)
-            return json.loads(decompressed_data.decode())
-        finally:
-            self._lock.release()
+            raise
 
     async def _delete(self, key, purge=False):
         await self._acquire_lock()
         try:
             if purge:
-                # Instead of using clear(), delete all keys one by one
-                count = 0
-                for k in self._db.keys(None, None, btree.INCL):
-                    del self._db[k]
-                    count += 1
-                self._db.flush()
+                # Close current database and file handle
+                if self._db:
+                    try:
+                        self._db.flush()
+                    except Exception:
+                        pass
+                    self._db = None
+                if self._db_handle:
+                    try:
+                        self._db_handle.close()
+                    except Exception:
+                        pass
+                    self._db_handle = None
+                # For file-based storage, delete the file
+                if not self.in_memory:
+                    try:
+                        os.remove(self.filename)
+                    except Exception:
+                        pass
+                # Reopen database
+                if self.in_memory:
+                    db_path = "/mtdb-ram/microtether.db"
+                else:
+                    ensure_dirs(self.filename)
+                    db_path = self.filename
+                try:
+                    self._db_handle = open(db_path, "w+b")
+                    self._db = btree.open(
+                        self._db_handle,
+                        cachesize=self.btree_cachesize,
+                        pagesize=self.btree_pagesize
+                    )
+                except Exception as e:
+                    raise ValueError(f"Failed to recreate database: {e}")
                 self._flush_counter = 0
                 self._last_flush_time = time.time()
-                return count
+                return 1  # Return 1 to indicate success
             if key in self._db:
                 del self._db[key]
                 self._operation_counts["delete"] += 1
@@ -266,7 +362,6 @@ class MicroTetherDB:
             limit = query_dict.pop("$limit", None)
             if limit is not None:
                 limit = int(limit)
-
             def get_field_value(doc, field):
                 keys = field.split(".")
                 current = doc
@@ -275,7 +370,6 @@ class MicroTetherDB:
                         return None
                     current = current.get(key)
                 return current
-
             def matches_query(doc):
                 if not query_dict:
                     return True
@@ -445,7 +539,9 @@ class MicroTetherDB:
 
     def _generate_key(self, ttl=0):
         current_time = int(time.time())
-        unique_id = random.getrandbits(8)
+        unique_id = random.getrandbits(16)
+        # Ensure ttl is an integer, defaulting to 0 if None
+        ttl = int(ttl) if ttl is not None else 0
         return f"{current_time}:{ttl}:{unique_id}"
 
     def _is_expired(self, key):
@@ -499,10 +595,14 @@ class MicroTetherDB:
 
     def get(self, key):
         future = Future()
-        self._queue.append((future, "get", (key,), {}))
-        if len(self._queue) == 1:
-            self._loop.run_until_complete(self._process_next())
-        return future.result()
+        try:
+            self._queue.append((future, "get", (key,), {}))
+            if len(self._queue) == 1:
+                self._loop.run_until_complete(self._process_next())
+            result = future.result()
+            return result
+        except Exception as e:
+            raise
 
     def delete(self, key=None, purge=False):
         future = Future()
@@ -530,14 +630,14 @@ class MicroTetherDB:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self._stop_worker()
+        self.close()
 
     def __enter__(self):
         self._start_worker()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._stop_worker()
+        self.close()
 
     def _stop_worker(self):
         if not self._running:
@@ -551,9 +651,29 @@ class MicroTetherDB:
                 pass
             self._worker = None
 
-    def __del__(self):
+    def close(self):
         self._stop_worker()
+        if self._db:
+            try:
+                self._db.flush()
+            except Exception:
+                pass
+            self._db = None
         if self._db_handle:
-            self._db_handle.close()
+            try:
+                self._db_handle.close()
+            except Exception:
+                pass
+            self._db_handle = None
         if self.in_memory and self._ram_device:
-            self._ram_device.umount()
+            try:
+                self._ram_device.umount("/mtdb-ram")
+            except Exception:
+                pass
+            self._ram_device = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass

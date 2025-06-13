@@ -1,88 +1,77 @@
-import errno
 import os
-import time
-
-try:
-    import vfs  # Your working example uses this
-    HAS_VFS = True
-except ImportError:
-    vfs = None
-    HAS_VFS = False
-
+import vfs
 
 class RAMBlockDevice:
-    def __init__(self, blocks=128, block_size=256):
+    def __init__(self, block_size=512, block_count=128):
         self.block_size = block_size
-        self.blocks = blocks
-        self.size = self.blocks * self.block_size
-        self.data = bytearray(self.size)
-        self.mount_point = "/mtdb_ramdisk"
-        self.mounted = False
-        print(f"RAM device initialized: {self.blocks} blocks of {self.block_size} bytes ({self.size / 1024:.1f} KB)")
+        self.block_count = block_count
+        self.storage = bytearray(block_size * block_count)
+        print(f"RAMBlockDevice initialized with block_size={block_size}, block_count={block_count}, total_size={len(self.storage)}")
 
     def readblocks(self, block_num, buf):
+        if block_num < 0 or block_num >= self.block_count:
+            raise OSError(22)  # Invalid argument
         start = block_num * self.block_size
         end = start + len(buf)
-        buf[:] = self.data[start:end]
+        if end > len(self.storage):
+            raise OSError(22)  # Invalid argument
+        buf[:] = self.storage[start:end]
 
     def writeblocks(self, block_num, buf):
+        if block_num < 0 or block_num >= self.block_count:
+            raise OSError(22)  # Invalid argument
         start = block_num * self.block_size
         end = start + len(buf)
-        self.data[start:end] = buf
+        if end > len(self.storage):
+            raise OSError(22)  # Invalid argument
+        self.storage[start:end] = buf
 
-    def ioctl(self, op, arg):
-        if op == 4: return self.blocks         # Get number of blocks
-        if op == 5: return self.block_size     # Get block size
-        return 0                               # No-op for other ops
-
-    def sync(self):
+    def ioctl(self, cmd, arg):
+        if cmd == 4:  # get number of blocks
+            return self.block_count
+        if cmd == 5:  # get block size
+            return self.block_size
+        if cmd == 6:  # erase block
+            if arg < 0 or arg >= self.block_count:
+                raise OSError(22)  # Invalid argument
+            start = arg * self.block_size
+            end = start + self.block_size
+            self.storage[start:end] = bytearray(self.block_size)
+            return 0
         return 0
 
-    def mount(self):
-        if not HAS_VFS:
-            raise ImportError("VFS module not available")
-
-        for attempt in range(3):
+    def mount(self, mount_point):
+        try:
+            print(f"Attempting to mount at {mount_point}")
+            print(f"Block device info: size={self.block_size}, count={self.block_count}")
+            
+            # Try to unmount first if already mounted
             try:
-                print(f"Formatting RAM device with FAT (attempt {attempt + 1})...")
-                vfs.VfsFat.mkfs(self)
+                os.umount(mount_point)
+            except Exception:
+                pass
 
-                try:
-                    os.mkdir(self.mount_point)
-                except OSError as e:
-                    if e.args[0] != errno.EEXIST:
-                        raise
-
-                vfs.mount(vfs.VfsFat(self), self.mount_point)
-                self.mounted = True
-                print(f"Mounted RAM device at {self.mount_point}")
-                return
-            except Exception as e:
-                print(f"Mount attempt {attempt + 1} failed: {e}")
-                time.sleep(0.25)
-
-        raise OSError("Failed to mount RAM device after multiple attempts")
-
-    def umount(self):
-        if self.mounted and HAS_VFS:
+            # Create mount point if it doesn't exist
             try:
-                vfs.umount(self.mount_point)
-                self.mounted = False
-                try:
-                    os.rmdir(self.mount_point)
-                except Exception:
-                    pass
-                print(f"Unmounted and cleaned up: {self.mount_point}")
-                return True
-            except Exception as e:
-                print(f"Error unmounting RAM device: {e}")
-                return False
-        return False
+                os.mkdir(mount_point)
+            except Exception:
+                pass
 
-    def get_db_path(self):
-        if self.mounted:
-            return f"{self.mount_point}/microtetherdb.db"
-        return None
+            # Format the filesystem
+            print("Formatting filesystem...")
+            vfs.VfsFat.mkfs(self)
+            print("Filesystem formatted successfully")
 
-    def __del__(self):
-        self.umount()
+            # Mount it
+            print("Mounting filesystem...")
+            os.mount(vfs.VfsFat(self), mount_point)
+            print("Filesystem mounted successfully")
+        except Exception as e:
+            print(f"Error in mount process: {e}")
+            raise
+
+    def umount(self, mount_point):
+        try:
+            os.umount(mount_point)
+        except Exception as e:
+            print(f"Warning: Error unmounting: {e}")

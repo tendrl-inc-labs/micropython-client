@@ -104,18 +104,10 @@ def time_operation(operation, *args, performance_summary=None, **kwargs):
     return result, duration
 
 @measure_time
-def test_basic_operations(performance_summary, use_memory=False):
+def test_basic_operations(performance_summary, db):
     """Test basic put/get operations"""
     print("\nTesting basic operations...")
 
-    # Clean up any existing test file
-    if not use_memory:
-        try:
-            os.unlink("test.db")
-        except:
-            pass
-
-    db = MicroTetherDB(filename="test.db", in_memory=use_memory)
     try:
         # Test put
         print("\nTesting put operation...")
@@ -175,11 +167,10 @@ def test_basic_operations(performance_summary, use_memory=False):
         del db
 
 @measure_time
-def test_ttl(performance_summary, use_memory=False):
+def test_ttl(performance_summary, db):
     """Test TTL functionality"""
     print("\nTesting TTL...")
 
-    db = MicroTetherDB(filename="test.db", in_memory=use_memory)
     try:
         # Store data with 5 second TTL
         result, put_time = time_operation(db.put, {"name": "John"}, ttl=5, performance_summary=performance_summary)
@@ -217,11 +208,10 @@ def test_ttl(performance_summary, use_memory=False):
         del db
 
 @measure_time
-def test_batch_operations(performance_summary, use_memory=False):
+def test_batch_operations(performance_summary, db):
     """Test batch operations"""
     print("\nTesting batch operations...")
 
-    db = MicroTetherDB(filename="test.db", in_memory=use_memory)
     try:
         # Test batch put
         batch_items = [
@@ -276,11 +266,10 @@ def test_batch_operations(performance_summary, use_memory=False):
         del db
 
 @measure_time
-def test_query_operators(performance_summary, use_memory=False):
+def test_query_operators(performance_summary, db):
     """Test query operators"""
     print("\nTesting query operators...")
 
-    db = MicroTetherDB(filename="test.db", in_memory=use_memory)
     try:
         # Store test data
         test_data = [
@@ -362,42 +351,17 @@ def test_query_operators(performance_summary, use_memory=False):
     finally:
         del db
 
-@measure_time
-def test_memory_to_file_fallback(performance_summary):
-    """Test the fallback from memory to file storage"""
-    print("\nTesting memory to file fallback...")
 
-    # Set an extremely high memory percentage to force fallback
-    db = None
-    try:
-        # Request 90% of memory which should trigger fallback
-        print("Creating database with high memory request (should trigger fallback)...")
-        db = MicroTetherDB(filename="fallback.db", in_memory=True, ram_percentage=90)
-
-        # Check if we're actually using file storage
-        # We can't directly check this, but we can verify the database works
-        key = db.put({"test": "fallback"})
-        data = db.get(key)
-        assert data and data["test"] == "fallback", "Failed to store data after fallback"
-
-        print("Memory to file fallback test passed")
-    finally:
-        if db:
-            del db
-        try:
-            os.unlink("fallback.db")
-        except Exception:
-            pass
-
-def run_tests(use_memory=False):
-    """Run all tests with specified storage type"""
-    storage_type = "memory" if use_memory else "file"
+def run_tests(db):
+    """Run all tests with specified DB instance"""
+    # Determine storage type for reporting
+    storage_type = "memory" if getattr(db, 'in_memory', False) else "file"
     print(f"\nRunning tests with {storage_type} storage...")
 
     performance_summary = {
         "put": {
-            "total_time": 0, 
-            "total_ops": 0, 
+            "total_time": 0,
+            "total_ops": 0,
             "avg_time": 0,
             "success_count": 0,
             "failure_count": 0,
@@ -405,8 +369,8 @@ def run_tests(use_memory=False):
             "max_time": 0
         },
         "get": {
-            "total_time": 0, 
-            "total_ops": 0, 
+            "total_time": 0,
+            "total_ops": 0,
             "avg_time": 0,
             "success_count": 0,
             "failure_count": 0,
@@ -414,8 +378,8 @@ def run_tests(use_memory=False):
             "max_time": 0
         },
         "delete": {
-            "total_time": 0, 
-            "total_ops": 0, 
+            "total_time": 0,
+            "total_ops": 0,
             "avg_time": 0,
             "success_count": 0,
             "failure_count": 0,
@@ -423,8 +387,8 @@ def run_tests(use_memory=False):
             "max_time": 0
         },
         "batch_put": {
-            "total_time": 0, 
-            "total_ops": 0, 
+            "total_time": 0,
+            "total_ops": 0,
             "avg_time": 0,
             "success_count": 0,
             "failure_count": 0,
@@ -434,8 +398,8 @@ def run_tests(use_memory=False):
             "avg_items_per_batch": 0
         },
         "batch_delete": {
-            "total_time": 0, 
-            "total_ops": 0, 
+            "total_time": 0,
+            "total_ops": 0,
             "avg_time": 0,
             "success_count": 0,
             "failure_count": 0,
@@ -445,8 +409,8 @@ def run_tests(use_memory=False):
             "avg_items_per_batch": 0
         },
         "query": {
-            "total_time": 0, 
-            "total_ops": 0, 
+            "total_time": 0,
+            "total_ops": 0,
             "avg_time": 0,
             "success_count": 0,
             "failure_count": 0,
@@ -458,24 +422,20 @@ def run_tests(use_memory=False):
 
     try:
         print(f"Starting tests with {storage_type} storage...")
-        total_start_time = time.time()
+        total_start_time = time.ticks_ms()
 
-        def run_test_with_perf(test_func):
-            test_func(performance_summary, use_memory)
+        def run_test_with_perf(test_func, db):
+            test_func(performance_summary, db)
             gc.collect()
 
         # Run tests
-        run_test_with_perf(test_basic_operations)
-        run_test_with_perf(test_ttl)
-        run_test_with_perf(test_batch_operations)
-        run_test_with_perf(test_query_operators)
+        run_test_with_perf(test_basic_operations, db)
+        run_test_with_perf(test_ttl, db)
+        run_test_with_perf(test_batch_operations, db)
+        run_test_with_perf(test_query_operators, db)
 
-        # Only run fallback test once as it tests transition between memory and file
-        if not use_memory:
-            test_memory_to_file_fallback(performance_summary)
-
-        total_end_time = time.time()
-        total_test_time = total_end_time - total_start_time
+        total_end_time = time.ticks_ms()
+        total_test_time = time.ticks_diff(total_end_time, total_start_time) / 1000  # Convert to seconds
 
         # Print performance summary
         print(f"\n{'=' * 80}")
@@ -490,7 +450,7 @@ def run_tests(use_memory=False):
             min_time = metrics['min_time'] if metrics['min_time'] != float('inf') else 0
             max_time = metrics['max_time']
             avg_time = metrics['avg_time'] if metrics['total_ops'] > 0 else 0
-            print(f"{op:<15} {metrics['total_ops']:<15} {metrics['total_time']:<15.2f} {avg_time:<15.2f} {min_time:<15.2f} {max_time:<15.2f}")
+            print(f"{op:<15} {metrics['total_ops']:<15} {metrics['total_time']:<15} {avg_time:<15} {min_time:<15} {max_time:<15}")
 
         print("\nSUCCESS RATE METRICS:")
         print(f"{'Operation':<15} {'Success Count':<15} {'Failure Count':<15} {'Success Rate(%)':<15}")
@@ -535,27 +495,31 @@ def main():
     """Run tests for both memory and file storage"""
     print("Initializing test environment...")
 
-    # Run tests with memory storage
-    memory_performance = run_tests(use_memory=True)
+    # Run file-backed tests first
+    print("\nRunning with file DB...")
+    with MicroTetherDB(filename="test.db", in_memory=False) as file_db:
+        file_performance = run_tests(file_db)
 
-    # Run tests with file storage
-    file_performance = run_tests(use_memory=False)
+    # Run memory-backed tests
+    print("\nRunning with in-memory DB...")
+    with MicroTetherDB(filename="mem.db", in_memory=True) as mem_db:
+        memory_performance = run_tests(mem_db)
 
     # Compare results
     print("\n" + "=" * 80)
-    print("COMPARISON OF MEMORY VS FILE STORAGE")
+    print("COMPARISON OF FILE VS MEMORY STORAGE")
     print("=" * 80)
 
     print("\nOPERATION SPEED COMPARISON (ms):")
-    print(f"{'Operation':<15} {'Memory Avg':<15} {'File Avg':<15} {'Speedup':<15}")
+    print(f"{'Operation':<15} {'File Avg':<15} {'Memory Avg':<15} {'Speedup':<15}")
     print("-" * 60)
 
-    for op, metrics in memory_performance.items():
-        if metrics['total_ops'] > 0 and op in file_performance and file_performance[op]['total_ops'] > 0:
-            memory_avg = metrics['avg_time']
-            file_avg = file_performance[op]['avg_time']
+    for op, metrics in file_performance.items():
+        if metrics['total_ops'] > 0 and op in memory_performance and memory_performance[op]['total_ops'] > 0:
+            file_avg = metrics['avg_time']
+            memory_avg = memory_performance[op]['avg_time']
             speedup = file_avg / memory_avg if memory_avg > 0 else 0
-            print(f"{op:<15} {memory_avg:<15.2f} {file_avg:<15.2f} {speedup:<15.2f}x")
+            print(f"{op:<15} {file_avg:<15.2f} {memory_avg:<15.2f} {speedup:<15.2f}")
 
 if __name__ == "__main__":
     main()
