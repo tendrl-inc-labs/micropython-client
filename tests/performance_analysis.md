@@ -82,13 +82,14 @@ The test suite ran comprehensive performance tests comparing in-memory and file-
 
 ### 4. Memory Usage Analysis
 
-| Storage Type | Base Memory | Peak Memory | Overhead | Growth Pattern |
-|--------------|-------------|-------------|----------|----------------|
-| File         | 75KB        | 85KB        | baseline | Stable, minimal growth |
-| Memory       | 90KB        | 105KB       | 15KB     | Well-controlled, predictable |
+| Storage Type | Total Memory Used | Peak Memory | Storage Overhead | Growth Pattern |
+|--------------|-------------------|-------------|------------------|----------------|
+| File         | 75KB              | 85KB        | baseline         | Stable, minimal growth |
+| Memory       | 90KB              | 105KB       | +15KB            | Well-controlled, predictable |
 
 **Key Memory Insights:**
-- **Minimal Overhead**: Memory storage adds only 15KB overhead vs file storage
+- **Total Memory Usage**: Includes Python runtime, test framework, and database code (~75KB base)
+- **Storage Overhead**: Memory storage adds only 15KB for BytesIO buffer vs file handles
 - **Predictable Growth**: Memory usage scales linearly with data size
 - **No Memory Leaks**: Consistent memory patterns across all test operations
 - **Efficient BytesIO**: Direct in-memory stream avoids filesystem overhead
