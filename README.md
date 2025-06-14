@@ -61,6 +61,106 @@ The script will:
 2. Copy the `tendrl/` directory to your device's `/lib` directory
 3. Create or update the `config.json` file in your device's root directory
 
+## Installation Types
+
+The Tendrl SDK offers two installation options to suit different device constraints:
+
+### Full Installation (Default)
+
+Includes all features:
+- Tendrl client and networking
+- MicroTetherDB (local database)
+- Offline message storage
+- Client database for application data
+- All utilities and helpers
+
+**Size**: ~150KB flash storage
+
+```python
+# Install with full features (default)
+python install_script.py
+```
+
+### Minimal Installation
+
+Includes core features only:
+- Tendrl client and networking
+- Basic utilities (no local database)
+- Direct message sending only
+
+**Size**: ~100KB flash storage (saves ~50KB)
+
+```python
+# Install minimal version
+python install_script.py --no-db
+```
+
+### Client Configuration by Installation Type
+
+The client automatically detects available features and configures itself appropriately:
+
+#### Full Installation Usage
+
+```python
+from tendrl import Client
+
+# All features available (default configuration)
+client = Client(
+    debug=True,
+    # client_db=True,          # Auto-enabled
+    # client_db_in_memory=True, # Default: in-memory
+    # offline_storage=True      # Auto-enabled
+)
+
+# Use database features
+key = client.db_put({"sensor": "temperature", "value": 23.5})
+data = client.db_get(key)
+
+# Offline storage works
+client.publish(
+    {"temperature": 23.5},
+    write_offline=True  # Stores offline if connection fails
+)
+```
+
+#### Minimal Installation Usage
+
+```python
+from tendrl import Client
+
+# Database features auto-disabled
+client = Client(
+    debug=True,
+    # client_db=False,      # Auto-disabled (no MicroTetherDB)
+    # offline_storage=False # Auto-disabled (no MicroTetherDB)
+)
+
+# Database methods raise helpful errors
+try:
+    client.db_put({"test": "data"})
+except Exception as e:
+    print(e)  # "Client database not available - install full package"
+
+# Basic publishing still works
+client.publish(
+    {"temperature": 23.5},
+    write_offline=False  # Must be False - no offline storage
+)
+```
+
+### Feature Comparison
+
+| Feature | Full Installation | Minimal Installation |
+|---------|------------------|---------------------|
+| **Client & Networking** | ✅ | ✅ |
+| **Message Publishing** | ✅ | ✅ |
+| **WebSocket Communication** | ✅ | ✅ |
+| **Client Database** | ✅ | ❌ |
+| **Offline Storage** | ✅ | ❌ |
+| **TTL Management** | ✅ | ❌ |
+| **Rich Queries** | ✅ | ❌ |
+| **Flash Storage** | ~150KB | ~100KB |
+
 ## Configuration
 
 The SDK uses a configuration file approach rather than constructor parameters. Create a `config.json` file in your device's root directory:
@@ -487,3 +587,146 @@ print(f"Free memory: {free_mem} bytes")
 
 Copyright (c) 2025 tendrl, inc.
 All rights reserved. Unauthorized copying, distribution, modification, or usage of this code, via any medium, is strictly prohibited without express permission from the author.
+
+## Installation Options
+
+### Full Installation (Recommended)
+Includes MicroTetherDB for local data storage and caching:
+```python
+# Run on your MicroPython device
+import mip
+mip.install("github:tendrl-inc-labs/micropython-client/package.json", target="/lib")
+```
+
+### Minimal Installation
+Excludes MicroTetherDB to save ~50KB flash space:
+```python
+# Run on your MicroPython device  
+import mip
+mip.install("github:tendrl-inc-labs/micropython-client/package-minimal.json", target="/lib")
+```
+
+### Using Install Script
+```python
+# Full installation (default)
+exec(open("install_script.py").read())
+
+# Minimal installation
+exec(open("install_script.py --no-db").read())
+```
+
+## Quick Start
+
+### With Database (Full Installation)
+```python
+from tendrl import Client
+
+# Full featured client (default)
+client = Client(
+    client_db=True,           # Enable client database
+    client_db_in_memory=True, # Fast in-memory client DB
+    offline_storage=True      # Enable offline message storage
+)
+
+# Persistent client database
+client = Client(
+    client_db=True, 
+    client_db_in_memory=False  # File-based client DB
+)
+
+# Minimal database usage (client DB only)
+client = Client(
+    client_db=True,
+    offline_storage=False  # Disable offline storage to save memory
+)
+
+# Use local database for caching
+client.db_put({"sensor": "temp", "value": 23.5}, ttl=3600)
+data = client.db_get(key)
+results = client.db_query({"sensor": "temp"})
+```
+
+### Without Database (Minimal Installation)
+```python
+from tendrl import Client
+
+# Create client without database features
+client = Client(client_db=False, offline_storage=False)
+
+# Direct publishing only
+client.publish({"sensor": "temp", "value": 23.5})
+```
+
+## Features
+
+- **Lightweight**: Minimal installation uses <100KB flash
+- **Local Database**: Optional MicroTetherDB with TTL, queries, and caching
+- **Automatic TTL**: Background cleanup of expired data
+- **Rich Queries**: MongoDB-style query operators
+- **Dual Storage**: In-memory (fast) or file-based (persistent)
+- **Production Ready**: Comprehensive error handling and async support
+
+## Database Features (Full Installation Only)
+
+- **Automatic TTL Management**: Set expiry times, automatic cleanup
+- **Rich Query Engine**: $gt, $lt, $in, $contains, nested fields
+- **Dual Storage Modes**: Memory (speed) vs File (persistence)  
+- **Batch Operations**: Efficient bulk insert/delete
+- **Memory Efficient**: Configurable RAM usage limits
+- **Production Ready**: Async support, error handling, comprehensive tests
+
+## Database Storage Options (Full Installation)
+
+The Tendrl client can use up to two separate databases:
+
+### Main Storage Database (Offline Messages)
+- **Purpose**: Internal message queuing and offline storage
+- **Storage**: Always file-based (`/lib/tendrl/tether.db`) when enabled
+- **Persistence**: Survives device restarts
+- **Control**: `offline_storage=True/False`
+
+### Client Database (Your Data)
+- **Purpose**: Your application data storage
+- **Storage**: Configurable (in-memory or file-based)
+- **Access**: Via `client.db_*` methods
+- **Control**: `client_db=True/False` and `client_db_in_memory=True/False`
+
+```python
+# Full featured (default) - both databases enabled
+client = Client(
+    client_db=True,           # Your data storage
+    client_db_in_memory=True, # Fast in-memory
+    offline_storage=True      # Offline message queue
+)
+# ✅ Full offline capabilities
+# ✅ Fast client database
+# ❌ Higher memory usage
+
+# Client database only - no offline storage
+client = Client(
+    client_db=True,
+    offline_storage=False  # Saves memory
+)
+# ✅ Your data storage available
+# ✅ Lower memory usage
+# ❌ No offline message queuing
+
+# Persistent client database
+client = Client(
+    client_db=True, 
+    client_db_in_memory=False  # File-based storage
+)
+# ✅ Data survives restarts
+# ✅ Good performance
+# ❌ Slightly slower than in-memory
+
+# Minimal - no databases
+client = Client(
+    client_db=False,
+    offline_storage=False
+)
+# ✅ Lowest memory usage
+# ✅ Simplest setup
+# ❌ No local data storage
+# ❌ No offline capabilities
+```

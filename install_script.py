@@ -22,6 +22,11 @@ The installation process involves two configuration files:
 
 The script will create a template for the user config if it doesn't exist.
 You must edit this file with your actual credentials before the library will work.
+
+Installation Options:
+- Default: Installs full Tendrl SDK including MicroTetherDB
+- Minimal: Use --no-db to exclude MicroTetherDB (saves ~50KB flash space)
+  Example: python install_script.py --no-db
 """
 
 import json
@@ -52,6 +57,31 @@ MAX_WIFI_RETRIES = 3
 MAX_INSTALL_RETRIES = 3
 WIFI_RETRY_DELAY = 5  # seconds
 INSTALL_RETRY_DELAY = 10  # seconds
+
+# Check for command line arguments
+INCLUDE_DB = True
+if len(sys.argv) > 1:
+    if "--no-db" in sys.argv:
+        INCLUDE_DB = False
+        print("🗃️ Installing without MicroTetherDB (minimal installation)")
+    elif "--help" in sys.argv or "-h" in sys.argv:
+        print("Tendrl MicroPython Installation Script")
+        print("")
+        print("Usage:")
+        print("  python install_script.py          # Full installation (default)")
+        print("  python install_script.py --no-db  # Minimal installation (no database)")
+        print("  python install_script.py --help   # Show this help")
+        print("")
+        print("Full installation includes:")
+        print("  - Tendrl client and networking")
+        print("  - MicroTetherDB (local database)")
+        print("  - All utilities and helpers")
+        print("")
+        print("Minimal installation includes:")
+        print("  - Tendrl client and networking")
+        print("  - Basic utilities (no local database)")
+        print("  - Saves ~50KB flash space")
+        sys.exit(0)
 
 def create_user_config_template():
     """Create a template user config file if it doesn't exist."""
@@ -148,15 +178,24 @@ def file_exists(path):
 def verify_installation():
     """Verify that tendrl was installed correctly by checking for key files."""
     try:
-        # Check for some key files
+        # Check for core required files
         required_files = [
             "/lib/tendrl/__init__.py",
             "/lib/tendrl/client.py",
             "/lib/tendrl/manifest.py",
-            "/lib/tendrl/config.json",
-            "/lib/tendrl/lib/microtetherdb/__init__.py",
-            "/lib/tendrl/lib/microtetherdb/MicroTetherDB.py"
+            "/lib/tendrl/config.json"
         ]
+
+        # Add database files only if database was included
+        if INCLUDE_DB:
+            db_files = [
+                "/lib/tendrl/lib/microtetherdb/__init__.py",
+                "/lib/tendrl/lib/microtetherdb/db.py",
+                "/lib/tendrl/lib/microtetherdb/core/__init__.py",
+                "/lib/tendrl/lib/microtetherdb/core/ttl_manager.py",
+                "/lib/tendrl/lib/microtetherdb/core/query_engine.py"
+            ]
+            required_files.extend(db_files)
 
         for file in required_files:
             if not file_exists(file):
@@ -221,14 +260,22 @@ def ensure_required_directories():
 def install_tendrl():
     for attempt in range(MAX_INSTALL_RETRIES):
         try:
-            print(f"⬇️ Attempt {attempt + 1}/{MAX_INSTALL_RETRIES}: Installing tendrl...")
+            if INCLUDE_DB:
+                print(f"⬇️ Attempt {attempt + 1}/{MAX_INSTALL_RETRIES}: Installing full Tendrl SDK...")
+            else:
+                print(f"⬇️ Attempt {attempt + 1}/{MAX_INSTALL_RETRIES}: Installing minimal Tendrl SDK...")
 
             # Ensure all required directories exist
             if not ensure_required_directories():
                 raise RuntimeError("Failed to create required directories")
 
-            # Install using package.json with github: prefix
-            mip.install("github:tendrl-inc-labs/micropython-client/package.json", target="/lib")
+            # Install using appropriate package.json
+            if INCLUDE_DB:
+                # Full installation with database
+                mip.install("github:tendrl-inc-labs/micropython-client/package.json", target="/lib")
+            else:
+                # Minimal installation without database
+                mip.install("github:tendrl-inc-labs/micropython-client/package-minimal.json", target="/lib")
 
             # Create the library config file
             if not create_library_config():
@@ -236,7 +283,12 @@ def install_tendrl():
 
             # Verify the installation
             if verify_installation():
-                print("✅ tendrl installed and verified successfully")
+                if INCLUDE_DB:
+                    print("✅ Full Tendrl SDK installed and verified successfully")
+                    print("📊 Includes MicroTetherDB for local data storage")
+                else:
+                    print("✅ Minimal Tendrl SDK installed and verified successfully")
+                    print("⚠️ Note: Local database features disabled (client_db=False required)")
                 return True
             else:
                 raise RuntimeError("Installation verification failed")
@@ -290,6 +342,12 @@ def main():
             sys.exit(1)
 
         print("✨ Installation completed successfully!")
+        if INCLUDE_DB:
+            print("📊 MicroTetherDB is available for local data storage")
+            print("💡 Use client_db=True in Client() constructor (default)")
+        else:
+            print("⚠️ MicroTetherDB not installed - use client_db=False in Client() constructor")
+            print("💡 This saves ~50KB flash space but disables local database features")
         print("⚠️ If you haven't already, please edit /config.json with your API key")
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
