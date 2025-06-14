@@ -8,10 +8,10 @@ import os
 
 import btree
 
-from .core.ram_device import RAMBlockDevice
+
 from .core.future import Future
 from .core.exceptions import DBLock
-from .core.utils import calculate_ram_size, ensure_dirs
+from .core.utils import ensure_dirs
 
 class MicroTetherDB:
     def __init__(self, filename="microtether.db", in_memory=True, ram_percentage=25,
@@ -20,9 +20,6 @@ class MicroTetherDB:
         self.filename = filename
         self.in_memory = in_memory
         self.ram_percentage = ram_percentage
-        if in_memory:
-            import vfs
-            self.ram_blocks, self.ram_block_size = calculate_ram_size(ram_percentage)
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.lock_timeout = lock_timeout
@@ -31,7 +28,6 @@ class MicroTetherDB:
         self.btree_pagesize = btree_pagesize
         self.adaptive_threshold = adaptive_threshold
         self._db = None
-        self._ram_device = None
         self._db_handle = None
         self._lock = asyncio.Lock()
         self._last_cleanup = 0
@@ -48,7 +44,8 @@ class MicroTetherDB:
         self._flush_counter = 0
         self._flush_threshold = 10  # Keep lower flush threshold
         self._last_flush_time = time.time()
-        self._auto_flush_seconds = 5
+        # Smart auto-flush: memory doesn't need aggressive time-based flushing
+        self._auto_flush_seconds = 10 if self.in_memory else 5
         try:
             self._init_db()
             self._start_worker()
@@ -66,33 +63,22 @@ class MicroTetherDB:
         try:
             gc.collect()
             if self.in_memory:
-                import vfs
-                print(f"Initializing in-memory database with ram_percentage={self.ram_percentage}")
-                print(f"Calculated ram_blocks={self.ram_blocks}, ram_block_size={self.ram_block_size}")
-                # Force cleanup from previous instances
-                if self._ram_device:
-                    try:
-                        self._ram_device.umount("/mtdb-ram")
-                    except Exception as e:
-                        print(f"Warning: Error during cleanup: {e}")
-                    self._ram_device = None
-                gc.collect()
-                self._ram_device = RAMBlockDevice(
-                    block_size=self.ram_block_size,
-                    block_count=self.ram_blocks
-                )
-                # Mount the filesystem
-                self._ram_device.mount("/mtdb-ram")
-                db_path = "/mtdb-ram/microtether.db"
+                # Use MicroPython's built-in BytesIO - officially supported by btree
+                try:
+                    import io
+                    self._db_handle = io.BytesIO()
+                except ImportError:
+                    # Fallback to uio if io not available
+                    import uio
+                    self._db_handle = uio.BytesIO()
             else:
                 # File-based storage initialization
-                print(f"Initializing file-based database at {self.filename}")
                 ensure_dirs(self.filename)
-                db_path = self.filename
-            try:
-                self._db_handle = open(db_path, "r+b")
-            except OSError:
-                self._db_handle = open(db_path, "w+b")
+                try:
+                    self._db_handle = open(self.filename, "r+b")
+                except OSError:
+                    self._db_handle = open(self.filename, "w+b")
+                    
             try:
                 self._db = btree.open(
                     self._db_handle,
@@ -165,12 +151,11 @@ class MicroTetherDB:
     def _adaptive_flush_threshold(self):
         if not self.adaptive_threshold:
             return self._flush_threshold
-        
-        # For in-memory operations, use a moderate threshold
+        # For in-memory operations, use moderate threshold for better individual performance
+        # BytesIO doesn't need as aggressive flushing as VFS systems
         if self.in_memory:
-            return max(20, self._flush_threshold)
-            
-        # Calculate based on operation counts
+            return max(5, self._flush_threshold // 2)  # Moderate threshold
+        # Calculate based on operation counts for file operations
         total_ops = sum(self._operation_counts.values())
         if total_ops < 100:
             return 10
@@ -210,17 +195,13 @@ class MicroTetherDB:
                     self._db[key_bytes] = encoded_data
                 except Exception:
                     raise
-                try:
-                    # For in-memory operations, only flush periodically
-                    if not self.in_memory:
-                        self._db.flush()
-                except Exception:
-                    raise
-
                 self._operation_counts["put"] += 1
                 self._flush_counter += 1
                 current_time = time.time()
                 effective_threshold = self._adaptive_flush_threshold()
+                
+                # For in-memory, be much more aggressive with flushing to avoid buildup
+                # For file operations, use adaptive thresholds
                 should_flush = (
                     self._flush_counter >= effective_threshold or
                     current_time - self._last_flush_time >= self._auto_flush_seconds
@@ -281,12 +262,17 @@ class MicroTetherDB:
                         pass
                 # Reopen database
                 if self.in_memory:
-                    db_path = "/mtdb-ram/microtether.db"
+                    # Create fresh BytesIO for purged database
+                    try:
+                        import io
+                        self._db_handle = io.BytesIO()
+                    except ImportError:
+                        import uio
+                        self._db_handle = uio.BytesIO()
                 else:
                     ensure_dirs(self.filename)
-                    db_path = self.filename
+                    self._db_handle = open(self.filename, "w+b")
                 try:
-                    self._db_handle = open(db_path, "w+b")
                     self._db = btree.open(
                         self._db_handle,
                         cachesize=self.btree_cachesize,
@@ -354,33 +340,33 @@ class MicroTetherDB:
                     for op, op_value in condition.items():
                         if op == "$eq" and field_value != op_value:
                             return False
-                        elif op == "$gt" and (
+                        if op == "$gt" and (
                             not isinstance(field_value, (int, float)) or
                             field_value <= op_value
                         ):
                             return False
-                        elif op == "$gte" and (
+                        if op == "$gte" and (
                             not isinstance(field_value, (int, float)) or
                             field_value < op_value
                         ):
                             return False
-                        elif op == "$lt" and (
+                        if op == "$lt" and (
                             not isinstance(field_value, (int, float)) or
                             field_value >= op_value
                         ):
                             return False
-                        elif op == "$lte" and (
+                        if op == "$lte" and (
                             not isinstance(field_value, (int, float)) or
                             field_value > op_value
                         ):
                             return False
-                        elif op == "$in" and field_value not in op_value:
+                        if op == "$in" and field_value not in op_value:
                             return False
-                        elif op == "$ne" and field_value == op_value:
+                        if op == "$ne" and field_value == op_value:
                             return False
-                        elif op == "$exists" and (field_value is None) == op_value:
+                        if op == "$exists" and (field_value is None) == op_value:
                             return False
-                        elif op == "$contains":
+                        if op == "$contains":
                             contains = False
                             if isinstance(field_value, list) and op_value in field_value:
                                 contains = True
@@ -389,11 +375,8 @@ class MicroTetherDB:
                             if not contains:
                                 return False
                 return True
-
-            # Process documents in batches
-            batch_size = 20  # Increased from 5 to 20
+            batch_size = 20
             current_batch = []
-            
             for key in self._db.keys(None, None, btree.INCL):
                 try:
                     raw_data = self._db[key]
@@ -409,13 +392,10 @@ class MicroTetherDB:
                 except Exception as e:
                     print(f"Error processing document: {e}")
                     continue
-            
-            # Add any remaining documents
             if current_batch:
                 results.extend(current_batch)
                 if limit is not None:
                     results = results[:limit]
-
             return results
         finally:
             self._lock.release()
@@ -509,7 +489,6 @@ class MicroTetherDB:
     def _generate_key(self, ttl=0):
         current_time = int(time.time())
         unique_id = random.getrandbits(16)
-        # Ensure ttl is an integer, defaulting to 0 if None
         ttl = int(ttl) if ttl is not None else 0
         return f"{current_time}:{ttl}:{unique_id}"
 
@@ -634,12 +613,6 @@ class MicroTetherDB:
             except Exception:
                 pass
             self._db_handle = None
-        if self.in_memory and self._ram_device:
-            try:
-                self._ram_device.umount("/mtdb-ram")
-            except Exception:
-                pass
-            self._ram_device = None
 
     def __del__(self):
         try:

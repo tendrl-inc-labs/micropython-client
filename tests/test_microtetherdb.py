@@ -339,9 +339,6 @@ def test_large_batch_operations(performance_summary, db):
 def test_advanced_querying(performance_summary, db):
     """Test advanced query patterns and combinations"""
     try:
-        print("\nMemory before test_advanced_querying:")
-        show_memory()
-        
         # Generate smaller test data
         test_data = []
         for i in range(5):  # Reduced from 10 to 5 items
@@ -359,19 +356,12 @@ def test_advanced_querying(performance_summary, db):
                 }
             }
             test_data.append(item)
-            if i % 2 == 0:
-                print(f"\nMemory after creating item {i}:")
-                show_memory()
 
         # Store test data
         keys = []
         for i, data in enumerate(test_data):
-            print(f"\nMemory before storing item {i}:")
-            show_memory()
             result, _ = time_operation(db.put, data, performance_summary=performance_summary)
             keys.append(result)
-            print(f"Memory after storing item {i}:")
-            show_memory()
 
         # Test simpler query patterns
         complex_queries = [
@@ -386,11 +376,7 @@ def test_advanced_querying(performance_summary, db):
         ]
 
         for i, (query_name, query_dict) in enumerate(complex_queries):
-            print(f"\nMemory before query {i}:")
-            show_memory()
             result, _ = time_operation(db.query, query_dict, performance_summary=performance_summary)
-            print(f"Memory after query {i}:")
-            show_memory()
             
             if not isinstance(result, list):
                 result = list(result)
@@ -404,18 +390,12 @@ def test_advanced_querying(performance_summary, db):
                 assert all("premium" in doc["tags"] for doc in result), "Tag query failed"
 
         # Clean up
-        print("\nMemory before cleanup:")
-        show_memory()
         for key in keys:
             db.delete(key)
-        print("Memory after cleanup:")
-        show_memory()
 
     finally:
         del db
         gc.collect()
-        print("\nMemory after test completion:")
-        show_memory()
 
 def format_memory_size(bytes_value):
     """Convert bytes to human readable format (KB/MB)"""
