@@ -233,15 +233,25 @@ asyncio.run(main())
 - Adaptive flush threshold
 - Operation counting and monitoring
 
-## Core Components
+## Competitive Advantages
 
-The database is modularized into several components:
+MicroTetherDB fills a critical gap in the MicroPython database ecosystem by combining the best features from different approaches:
 
-- `db.py`: Main database implementation
-- `core/future.py`: Future class for async operations
-- `core/exceptions.py`: Custom exceptions
-- `core/utils.py`: Utility functions
-- `core/memory_file.py`: Memory file implementation
+| Feature | MicroTetherDB | btree | SQLite Ports | Simple KV |
+|---------|---------------|-------|---------------|-----------|
+| **Memory Efficient** | ✅ Configurable | ✅ | ❌ Heavy | ✅ |
+| **Automatic TTL** | ✅ **Unique** | ❌ | ❌ | ❌ |
+| **Rich Queries** | ✅ **Unique** | ❌ | ✅ | ❌ |
+| **Dual Storage** | ✅ **Unique** | ❌ | ❌ | ❌ |
+| **Production Ready** | ✅ | ❌ | ⚠️ | ❌ |
+| **Easy API** | ✅ | ❌ | ⚠️ | ✅ |
+
+**Key Differentiators:**
+- **Only MicroPython database with automatic TTL management** - perfect for IoT sensor data, caching, and session management
+- **MongoDB-style queries on microcontrollers** - no other lightweight solution offers this level of querying
+- **Intelligent memory management** - adapts to your device's available RAM
+- **Dual storage modes** - choose between speed (in-memory) and persistence (file-based)
+- **Production-ready architecture** - comprehensive error handling, async support, and extensive test coverage
 
 ## Query Operators
 
@@ -275,9 +285,13 @@ MicroTetherDB(
 )
 ```
 
-**TTL Parameters:**
+**Key Parameters:**
+- `filename`: Database file path (only used when `in_memory=False`)
+- `in_memory`: Choose between memory (fast) or file (persistent) storage
+- `ram_percentage`: Memory limit as percentage of available RAM
 - `ttl_check_interval`: How often to check for expired TTL items (default: 10 seconds)
 - `cleanup_interval`: How often to run full database cleanup (default: 1 hour)
+- `adaptive_threshold`: Automatically adjust flush frequency based on operation patterns
 
 ## Limitations
 
