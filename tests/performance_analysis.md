@@ -88,6 +88,7 @@ The test suite ran comprehensive performance tests comparing in-memory and file-
 | Memory       | 90KB              | 105KB       | +15KB            | Well-controlled, predictable |
 
 **Key Memory Insights:**
+
 - **Total Memory Usage**: Includes Python runtime, test framework, and database code (~75KB base)
 - **Storage Overhead**: Memory storage adds only 15KB for BytesIO buffer vs file handles
 - **Predictable Growth**: Memory usage scales linearly with data size
@@ -98,16 +99,19 @@ The test suite ran comprehensive performance tests comparing in-memory and file-
 ## Technical Implementation
 
 ### Memory Storage
+
 - Uses MicroPython's built-in `io.BytesIO`
 - Direct btree integration with in-memory stream
 - Optimized flush strategy for memory operations
 
-### File Storage  
+### File Storage
+
 - Standard file-based btree implementation
 - Persistent storage with disk I/O
 - Adaptive flushing for file operations
 
 ### Memory Profiling Methodology
+
 - **Real-time Monitoring**: Used `gc.mem_alloc()` and `gc.mem_free()` for precise tracking
 - **Operation-level Tracking**: Measured memory usage before/after each operation
 - **Peak Detection**: Monitored maximum memory usage during batch operations

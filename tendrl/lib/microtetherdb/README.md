@@ -1,6 +1,6 @@
 # MicroTetherDB
 
-A lightweight, feature-rich key-value (BTree) database for MicroPython devices with support for in-memory storage (RAM / volatile), flash based storage (flash / persistent), compression (where available), async operations.
+A lightweight, feature-rich key-value (BTree) database for MicroPython devices with support for in-memory storage (RAM / volatile) and file-based storage (flash / persistent) with async operations and efficient TTL management.
 
 ## Installation
 
@@ -16,7 +16,7 @@ from microtetherdb import MicroTetherDB
 ### Basic Operations
 
 ```python
-# Create a new in-memory database with default settings (15% of free memory)
+# Create a new in-memory database with default settings (25% of free memory)
 db = MicroTetherDB()
 
 # Create a file-based database
@@ -27,7 +27,7 @@ db = MicroTetherDB(
 
 # Create an in-memory database with custom memory allocation
 db = MicroTetherDB(
-    ram_percentage=25  # use 25% of available free memory
+    ram_percentage=30  # use 30% of available free memory
 )
 
 # Store data with optional TTL (time-to-live in seconds)
@@ -55,6 +55,33 @@ db.delete("user1")
 # Clear all data
 db.delete(purge=True)
 ```
+
+### TTL (Time-To-Live) Management
+
+The database features an efficient TTL system that automatically removes expired items:
+
+```python
+# Create database with custom TTL check frequency
+db = MicroTetherDB(
+    ttl_check_interval=5,    # Check for expired items every 5 seconds
+    cleanup_interval=1800    # Full cleanup every 30 minutes
+)
+
+# Store data with different TTL values
+db.put("session_token", {"token": "abc123"}, ttl=300)    # 5 minutes
+db.put("cache_data", {"result": "cached"}, ttl=60)       # 1 minute
+db.put("temp_file", {"path": "/tmp/file"}, ttl=10)       # 10 seconds
+
+# Items are automatically removed when they expire
+# No need to manually clean up expired data
+```
+
+**TTL Features:**
+- **Efficient Index**: Uses a min-heap to track only items with TTLs
+- **Frequent Checks**: Expired items removed every 10 seconds by default
+- **No Full Scans**: Only checks items that might be expired
+- **Automatic Cleanup**: No manual intervention required
+- **Performance**: O(log n) insertion, O(1) expiry checking for expired items
 
 ### Query Examples
 
@@ -119,47 +146,22 @@ results = db.query({
 })
 ```
 
-### Memory Management
-
-The database automatically manages memory usage in several ways:
-
-1. **Dynamic Memory Sizing**:
-   - By default, uses 15% of available free memory
-   - Minimum allocation: 1KB
-   - Maximum allocation: 32KB
-   - Automatically adjusts block size and count
-   - Falls back to file-based storage if memory is insufficient
-
-2. **Memory Optimization**:
-   - Uses smaller blocks (max 256 bytes) for better memory management
-   - Implements garbage collection before initialization
-   - Provides memory usage information during initialization
-   - Automatically reduces memory usage if needed
-
-3. **Memory Monitoring**:
-   - Prints memory information during initialization
-   - Shows total and free memory
-   - Reports block size and count being used
-   - Shows percentage of free memory being used
-
-Example output:
-
-```sh
-Memory info - Total: 131072, Free: 65536
-Using 32 blocks of 256 bytes each (15% of free memory)
-```
-
 ### Advanced Features
 
 ```python
 # Create database with custom settings
 db = MicroTetherDB(
-    ram_percentage=20,         # use 20% of free memory
-    use_compression=True,      # enable compression if uzlib is available
-    min_compress_size=256,     # minimum size for compression
-    btree_cachesize=32,        # BTree cache size
-    btree_pagesize=512,        # BTree page size
-    adaptive_threshold=True    # automatically adjust flush threshold
+    filename="my_database.db",
+    in_memory=True,               # use in-memory storage
+    ram_percentage=25,            # use 25% of free memory
+    max_retries=3,                # retry failed operations
+    retry_delay=0.1,              # delay between retries
+    lock_timeout=5.0,             # lock timeout in seconds
+    cleanup_interval=3600,        # full cleanup interval in seconds
+    ttl_check_interval=10,        # TTL expiry check interval in seconds
+    btree_cachesize=32,           # BTree cache size
+    btree_pagesize=512,           # BTree page size
+    adaptive_threshold=True       # automatically adjust flush threshold
 )
 
 # Store data with tags (using key-first method)
@@ -187,39 +189,43 @@ keys = db.put_batch(items, ttls=[3600, 7200])  # different TTLs for each item
 deleted = db.delete_batch(keys)
 ```
 
-### Async Usage
+### Context Manager Usage
 
 ```python
+# Synchronous context manager
+with MicroTetherDB() as db:
+    db.put({"key": "value"})
+    value = db.get("key")
+    
+    # Batch operations
+    items = [{"key1": "value1"}, {"key2": "value2"}]
+    keys = db.put_batch(items)
+    
+    # Complex queries
+    results = db.query({"key1": {"$exists": True}})
+
+# Async context manager
 import asyncio
 
 async def main():
     async with MicroTetherDB() as db:
-        # Async operations
-        await db.put({"key": "value"})
-        value = await db.get("key")
-        
-        # Batch operations
-        items = [{"key1": "value1"}, {"key2": "value2"}]
-        keys = await db.put_batch(items)
-        
-        # Complex queries
-        results = await db.query({"key1": {"$exists": True}})
+        # All operations are the same - the database handles async internally
+        db.put({"key": "value"})
+        value = db.get("key")
+        results = db.query({"key": {"$exists": True}})
 
-# Run async code
 asyncio.run(main())
 ```
 
 ## Features
 
 - In-memory storage by default (faster performance)
-- Dynamic memory sizing based on available RAM
-- Optional file-based storage
+- Optional file-based storage for persistence
 - BTree-based storage for efficient key-value operations
-- Data compression (when uzlib is available)
-- TTL (Time-To-Live) support
+- **Efficient TTL (Time-To-Live) system with indexed expiry tracking**
+- **Automatic background cleanup of expired items**
 - Tag-based querying
 - Complex query conditions ($gt, $lt, $in, etc.)
-- Automatic cleanup of expired entries
 - Thread-safe operations with async support
 - Locking mechanism
 - Memory efficient
@@ -232,10 +238,10 @@ asyncio.run(main())
 The database is modularized into several components:
 
 - `db.py`: Main database implementation
-- `core/ram_device.py`: RAM block device for in-memory storage
 - `core/future.py`: Future class for async operations
 - `core/exceptions.py`: Custom exceptions
-- `core/compression.py`: Data compression utilities
+- `core/utils.py`: Utility functions
+- `core/memory_file.py`: Memory file implementation
 
 ## Query Operators
 
@@ -251,6 +257,28 @@ The database supports the following query operators:
 - `$exists`: Field exists
 - `$contains`: String or array contains value
 
+## Constructor Parameters
+
+```python
+MicroTetherDB(
+    filename="microtether.db",    # Database filename (for file storage)
+    in_memory=True,               # Use in-memory storage (default: True)
+    ram_percentage=25,            # Percentage of free memory to use (default: 25)
+    max_retries=3,                # Maximum retries for failed operations
+    retry_delay=0.1,              # Delay between retries in seconds
+    lock_timeout=5.0,             # Lock timeout in seconds
+    cleanup_interval=3600,        # Full cleanup interval in seconds (default: 1 hour)
+    ttl_check_interval=10,        # TTL expiry check interval in seconds (default: 10s)
+    btree_cachesize=32,           # BTree cache size
+    btree_pagesize=512,           # BTree page size
+    adaptive_threshold=True       # Enable adaptive flush threshold
+)
+```
+
+**TTL Parameters:**
+- `ttl_check_interval`: How often to check for expired TTL items (default: 10 seconds)
+- `cleanup_interval`: How often to run full database cleanup (default: 1 hour)
+
 ## Limitations
 
 - Keys must be strings
@@ -258,7 +286,6 @@ The database supports the following query operators:
 - In-memory storage is lost on power cycle
 - Limited by available RAM for in-memory storage
 - No complex queries or indexing
-- Compression requires the `deflate` module (not available on all MicroPython devices)
 - BTree module must be available
 - Maximum value size is 8KB (after JSON serialization)
 
@@ -266,27 +293,40 @@ The database supports the following query operators:
 
 1. Use in-memory storage for temporary data or when persistence isn't needed
 2. Use file-based storage when data persistence is required
-3. Let the database automatically manage memory usage
-4. Monitor memory usage through initialization logs
-5. Set reasonable TTL values to prevent database growth
-6. Use compression for larger values (if deflate is available)
-7. Regular cleanup of expired entries
+3. Set reasonable TTL values to prevent database growth
+4. **Adjust `ttl_check_interval` based on your TTL usage patterns**
+5. **Use shorter intervals (1-5s) for applications with many short-lived TTL items**
+6. **Use longer intervals (30-60s) for applications with few or long-lived TTL items**
+7. Regular cleanup of expired entries happens automatically
 8. Handle exceptions appropriately
 9. Use tags for better data organization
 10. Use batch operations for better performance
 11. Monitor operation counts for adaptive threshold tuning
 12. The database automatically adjusts flush thresholds based on operation patterns
 
+## Performance Characteristics
+
+### TTL System Performance:
+- **Index Maintenance**: O(log n) for adding TTL items
+- **Expiry Checking**: O(k) where k = number of expired items (not total items)
+- **Memory Overhead**: ~24 bytes per TTL item for index entry
+- **Background Processing**: Non-blocking, runs between operations
+- **Cleanup Frequency**: Configurable from 1 second to hours
+
+### When to Adjust TTL Check Interval:
+- **High TTL Usage**: Set to 1-5 seconds for responsive cleanup
+- **Low TTL Usage**: Set to 30-60 seconds to reduce overhead
+- **Battery Constrained**: Set to 60+ seconds to reduce CPU usage
+- **Real-time Applications**: Set to 1-2 seconds for immediate cleanup
+
 ## Example
 
 ```python
 from microtetherdb import MicroTetherDB
 
-# Create in-memory database with automatic memory sizing
+# Create in-memory database
 db = MicroTetherDB(
-    ram_percentage=15,        # use 15% of free memory
-    use_compression=True,     # will be disabled if uzlib is not available
-    min_compress_size=256,
+    ram_percentage=25,        # use 25% of free memory
     adaptive_threshold=True
 )
 

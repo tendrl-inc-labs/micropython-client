@@ -153,22 +153,36 @@ def test_basic_operations(performance_summary, db):
 def test_ttl(performance_summary, db):
     """Test TTL functionality"""
     try:
-        # Store data with 5 second TTL
-        result, _ = time_operation(db.put, {"name": "John"}, ttl=5, performance_summary=performance_summary)
+        # Create a separate test database with faster TTL checking (1 second interval)
+        test_db = MicroTetherDB(
+            filename="ttl_test.db",
+            in_memory=True,
+            ttl_check_interval=1  # Check every 1 second instead of 10
+        )
+        
+        # Store data with 2 second TTL
+        result, _ = time_operation(test_db.put, {"name": "John"}, ttl=2, performance_summary=performance_summary)
 
         # Verify data exists
-        data, _ = time_operation(db.get, result, performance_summary=performance_summary)
+        data, _ = time_operation(test_db.get, result, performance_summary=performance_summary)
         assert data is not None, "Data not found before TTL"
 
-        # Wait for TTL to expire
-        time.sleep(6)
+        # Wait for TTL to expire (3 seconds should be enough with 1s check interval)
+        time.sleep(3)
 
-        # Force cleanup to ensure expired keys are removed
-        deleted = db.cleanup()
+        # Check if data is gone (background worker should have cleaned it up)
+        data, _ = time_operation(test_db.get, result, performance_summary=performance_summary)
+        
+        # If still not cleaned up, force cleanup as fallback
+        if data is not None:
+            test_db.cleanup()
+            data, _ = time_operation(test_db.get, result, performance_summary=performance_summary)
 
         # Verify data is gone
-        data, _ = time_operation(db.get, result, performance_summary=performance_summary)
         assert data is None, "Data still exists after TTL"
+        
+        # Clean up test database
+        test_db.close()
 
     finally:
         del db

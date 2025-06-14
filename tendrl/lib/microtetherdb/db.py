@@ -2,21 +2,24 @@ import asyncio
 from collections import deque
 import gc
 import json
-import random
 import time
 import os
 
 import btree
 
-
 from .core.future import Future
 from .core.exceptions import DBLock
 from .core.utils import ensure_dirs
+from .core.ttl_manager import TTLManager
+from .core.query_engine import QueryEngine
+from .core.flush_manager import FlushManager
+from .core.key_generator import KeyGenerator
+
 
 class MicroTetherDB:
     def __init__(self, filename="microtether.db", in_memory=True, ram_percentage=25,
                  max_retries=3, retry_delay=0.1, lock_timeout=5.0, cleanup_interval=3600,
-                 btree_cachesize=32, btree_pagesize=512, adaptive_threshold=True):
+                 ttl_check_interval=10, btree_cachesize=32, btree_pagesize=512, adaptive_threshold=True):
         self.filename = filename
         self.in_memory = in_memory
         self.ram_percentage = ram_percentage
@@ -24,9 +27,12 @@ class MicroTetherDB:
         self.retry_delay = retry_delay
         self.lock_timeout = lock_timeout
         self.cleanup_interval = cleanup_interval
+        self.ttl_check_interval = ttl_check_interval
         self.btree_cachesize = btree_cachesize
         self.btree_pagesize = btree_pagesize
         self.adaptive_threshold = adaptive_threshold
+        
+        # Core components
         self._db = None
         self._db_handle = None
         self._lock = asyncio.Lock()
@@ -35,17 +41,11 @@ class MicroTetherDB:
         self._running = False
         self._queue = deque((), 50)
         self._loop = asyncio.get_event_loop()
-        self._operation_counts = {
-            "put": 0,
-            "delete": 0,
-            "batch_put": 0,
-            "batch_delete": 0
-        }
-        self._flush_counter = 0
-        self._flush_threshold = 10  # Keep lower flush threshold
-        self._last_flush_time = time.time()
-        # Smart auto-flush: memory doesn't need aggressive time-based flushing
-        self._auto_flush_seconds = 10 if self.in_memory else 5
+        
+        # Initialize managers
+        self._ttl_manager = TTLManager()
+        self._flush_manager = FlushManager(adaptive_threshold, in_memory)
+        
         try:
             self._init_db()
             self._start_worker()
@@ -54,6 +54,7 @@ class MicroTetherDB:
             if self.in_memory:
                 print("Warning: Not enough memory for in-memory storage. Falling back to file-based storage.")
                 self.in_memory = False
+                self._flush_manager = FlushManager(adaptive_threshold, False)
                 self._init_db()
                 self._start_worker()
             else:
@@ -63,22 +64,15 @@ class MicroTetherDB:
         try:
             gc.collect()
             if self.in_memory:
-                # Use MicroPython's built-in BytesIO - officially supported by btree
-                try:
-                    import io
-                    self._db_handle = io.BytesIO()
-                except ImportError:
-                    # Fallback to uio if io not available
-                    import uio
-                    self._db_handle = uio.BytesIO()
+                import io
+                self._db_handle = io.BytesIO()
             else:
                 # File-based storage initialization
                 ensure_dirs(self.filename)
                 try:
                     self._db_handle = open(self.filename, "r+b")
                 except OSError:
-                    self._db_handle = open(self.filename, "w+b")
-                    
+                    self._db_handle = open(self.filename, "w+b") 
             try:
                 self._db = btree.open(
                     self._db_handle,
@@ -94,6 +88,9 @@ class MicroTetherDB:
             except Exception as e:
                 print(f"Error creating btree database: {e}")
                 raise
+            # Build TTL index from existing data
+            keys = list(self._db.keys(None, None, btree.INCL))
+            self._ttl_manager.rebuild_index(keys)
             self._loop.run_until_complete(self._cleanup())
         except Exception as e:
             print(f"Error initializing database: {e}")
@@ -110,9 +107,21 @@ class MicroTetherDB:
             while self._running:
                 try:
                     current_time = time.time()
+                    
+                    # Frequent TTL checks
+                    if self._ttl_manager.should_check_ttl(self.ttl_check_interval):
+                        deleted = await self._ttl_manager.check_expiry(
+                            self._db, 
+                            lambda: self._db.flush()
+                        )
+                        if deleted > 0:
+                            print(f"TTL cleanup: removed {deleted} expired items")
+                    
+                    # Full cleanup (less frequent, for safety/maintenance)
                     if (current_time - self._last_cleanup) >= self.cleanup_interval:
                         await self._cleanup()
                         self._last_cleanup = current_time
+                        
                     if not self._queue:
                         await asyncio.sleep(0.01)
                         continue
@@ -122,8 +131,6 @@ class MicroTetherDB:
                     await asyncio.sleep(0.01)
         except asyncio.CancelledError:
             pass
-        finally:
-            self._running = False
 
     async def _process_next(self):
         if not self._queue:
@@ -148,22 +155,6 @@ class MicroTetherDB:
         except Exception as e:
             future.set_exception(e)
 
-    def _adaptive_flush_threshold(self):
-        if not self.adaptive_threshold:
-            return self._flush_threshold
-        # For in-memory operations, use moderate threshold for better individual performance
-        # BytesIO doesn't need as aggressive flushing as VFS systems
-        if self.in_memory:
-            return max(5, self._flush_threshold // 2)  # Moderate threshold
-        # Calculate based on operation counts for file operations
-        total_ops = sum(self._operation_counts.values())
-        if total_ops < 100:
-            return 10
-        elif total_ops < 1000:
-            return 15
-        else:
-            return 20
-
     async def _acquire_lock(self):
         try:
             if self._lock.locked():
@@ -179,9 +170,9 @@ class MicroTetherDB:
             await self._acquire_lock()
             try:
                 if _id is None:
-                    key = self._generate_key(ttl)
+                    key = KeyGenerator.generate_key(ttl)
                     while key in self._db:
-                        key = self._generate_key(ttl)
+                        key = KeyGenerator.generate_key(ttl)
                 else:
                     key = str(_id)
                 key_bytes = key.encode()
@@ -193,23 +184,13 @@ class MicroTetherDB:
                 encoded_data = json_data.encode()
                 try:
                     self._db[key_bytes] = encoded_data
+                    # Add to TTL index if has TTL
+                    self._ttl_manager.add_to_index(key, ttl)
                 except Exception:
                     raise
-                self._operation_counts["put"] += 1
-                self._flush_counter += 1
-                current_time = time.time()
-                effective_threshold = self._adaptive_flush_threshold()
                 
-                # For in-memory, be much more aggressive with flushing to avoid buildup
-                # For file operations, use adaptive thresholds
-                should_flush = (
-                    self._flush_counter >= effective_threshold or
-                    current_time - self._last_flush_time >= self._auto_flush_seconds
-                )
-                if should_flush:
-                    self._db.flush()
-                    self._flush_counter = 0
-                    self._last_flush_time = current_time
+                self._flush_manager.record_operation("put")
+                self._flush_manager.flush_if_needed(self._db)
                 return key
             finally:
                 self._lock.release()
@@ -263,12 +244,8 @@ class MicroTetherDB:
                 # Reopen database
                 if self.in_memory:
                     # Create fresh BytesIO for purged database
-                    try:
-                        import io
-                        self._db_handle = io.BytesIO()
-                    except ImportError:
-                        import uio
-                        self._db_handle = uio.BytesIO()
+                    import io
+                    self._db_handle = io.BytesIO()
                 else:
                     ensure_dirs(self.filename)
                     self._db_handle = open(self.filename, "w+b")
@@ -280,25 +257,18 @@ class MicroTetherDB:
                     )
                 except Exception as e:
                     raise ValueError(f"Failed to recreate database: {e}")
-                self._flush_counter = 0
-                self._last_flush_time = time.time()
+                # Clear TTL index and flush manager
+                self._ttl_manager = TTLManager()
+                self._flush_manager.reset_counters()
                 return 1  # Return 1 to indicate success
 
             key_bytes = key.encode() if isinstance(key, str) else key
             if key_bytes in self._db:
                 del self._db[key_bytes]
-                self._operation_counts["delete"] += 1
-                self._flush_counter += 1
-                current_time = time.time()
-                effective_threshold = self._adaptive_flush_threshold()
-                should_flush = (
-                    self._flush_counter >= effective_threshold or
-                    current_time - self._last_flush_time >= self._auto_flush_seconds
-                )
-                if should_flush:
-                    self._db.flush()
-                    self._flush_counter = 0
-                    self._last_flush_time = current_time
+                # Remove from TTL index (lazy removal)
+                self._ttl_manager.remove_from_index(key)
+                self._flush_manager.record_operation("delete")
+                self._flush_manager.flush_if_needed(self._db)
                 return 1
             return 0
         finally:
@@ -307,96 +277,7 @@ class MicroTetherDB:
     async def _query(self, query_dict):
         await self._acquire_lock()
         try:
-            results = []
-            limit = query_dict.pop("$limit", None)
-            if limit is not None:
-                limit = int(limit)
-
-            def get_field_value(doc, field):
-                keys = field.split(".")
-                current = doc
-                for key in keys:
-                    if not isinstance(current, dict):
-                        return None
-                    current = current.get(key)
-                return current
-
-            def matches_query(doc):
-                if not query_dict:
-                    return True
-                for field, condition in query_dict.items():
-                    if field == "tags":
-                        field_value = doc.get("_tags", [])
-                        if not isinstance(condition, dict):
-                            if condition not in field_value:
-                                return False
-                            continue
-                    else:
-                        field_value = get_field_value(doc, field)
-                    if not isinstance(condition, dict):
-                        if field_value != condition:
-                            return False
-                        continue
-                    for op, op_value in condition.items():
-                        if op == "$eq" and field_value != op_value:
-                            return False
-                        if op == "$gt" and (
-                            not isinstance(field_value, (int, float)) or
-                            field_value <= op_value
-                        ):
-                            return False
-                        if op == "$gte" and (
-                            not isinstance(field_value, (int, float)) or
-                            field_value < op_value
-                        ):
-                            return False
-                        if op == "$lt" and (
-                            not isinstance(field_value, (int, float)) or
-                            field_value >= op_value
-                        ):
-                            return False
-                        if op == "$lte" and (
-                            not isinstance(field_value, (int, float)) or
-                            field_value > op_value
-                        ):
-                            return False
-                        if op == "$in" and field_value not in op_value:
-                            return False
-                        if op == "$ne" and field_value == op_value:
-                            return False
-                        if op == "$exists" and (field_value is None) == op_value:
-                            return False
-                        if op == "$contains":
-                            contains = False
-                            if isinstance(field_value, list) and op_value in field_value:
-                                contains = True
-                            elif isinstance(field_value, str) and op_value in field_value:
-                                contains = True
-                            if not contains:
-                                return False
-                return True
-            batch_size = 20
-            current_batch = []
-            for key in self._db.keys(None, None, btree.INCL):
-                try:
-                    raw_data = self._db[key]
-                    doc = json.loads(raw_data.decode())
-                    if matches_query(doc):
-                        current_batch.append(doc)
-                        if len(current_batch) >= batch_size:
-                            results.extend(current_batch)
-                            current_batch = []
-                            if limit is not None and len(results) >= limit:
-                                results = results[:limit]
-                                break
-                except Exception as e:
-                    print(f"Error processing document: {e}")
-                    continue
-            if current_batch:
-                results.extend(current_batch)
-                if limit is not None:
-                    results = results[:limit]
-            return results
+            return await QueryEngine.execute_query(self._db, query_dict)
         finally:
             self._lock.release()
 
@@ -422,22 +303,15 @@ class MicroTetherDB:
                 json_data = json.dumps(item)
                 if len(json_data) > 8192:  # 8KB limit
                     continue
-                key = self._generate_key(int(item_ttl))
+                key = KeyGenerator.generate_key(int(item_ttl))
                 encoded_data = json_data.encode()
                 self._db[key] = encoded_data
+                # Add to TTL index if has TTL
+                self._ttl_manager.add_to_index(key, item_ttl)
                 batch_keys.append(key)
-            self._operation_counts["batch_put"] += 1
-            self._flush_counter += len(batch_keys)
-            current_time = time.time()
-            effective_threshold = self._adaptive_flush_threshold()
-            should_flush = (
-                self._flush_counter >= effective_threshold or
-                current_time - self._last_flush_time >= self._auto_flush_seconds
-            )
-            if should_flush:
-                self._db.flush()
-                self._flush_counter = 0
-                self._last_flush_time = current_time
+            
+            self._flush_manager.record_operation("batch_put", len(batch_keys))
+            self._flush_manager.flush_if_needed(self._db)
             return batch_keys
         finally:
             self._lock.release()
@@ -470,39 +344,12 @@ class MicroTetherDB:
                 if key in self._db:
                     del self._db[key]
                     deleted_count += 1
-            self._operation_counts["batch_delete"] += 1
-            self._flush_counter += deleted_count
-            current_time = time.time()
-            effective_threshold = self._adaptive_flush_threshold()
-            should_flush = (
-                self._flush_counter >= effective_threshold or
-                current_time - self._last_flush_time >= self._auto_flush_seconds
-            )
-            if should_flush:
-                self._db.flush()
-                self._flush_counter = 0
-                self._last_flush_time = current_time
+            
+            self._flush_manager.record_operation("batch_delete", deleted_count)
+            self._flush_manager.flush_if_needed(self._db)
             return deleted_count
         finally:
             self._lock.release()
-
-    def _generate_key(self, ttl=0):
-        current_time = int(time.time())
-        unique_id = random.getrandbits(16)
-        ttl = int(ttl) if ttl is not None else 0
-        return f"{current_time}:{ttl}:{unique_id}"
-
-    def _is_expired(self, key):
-        try:
-            timestamp_str, ttl_str, _ = key.split(":")
-            timestamp = int(timestamp_str)
-            ttl = int(ttl_str)
-            if ttl == 0:
-                return False
-            current_time = int(time.time())
-            return current_time > (timestamp + ttl)
-        except (ValueError, IndexError):
-            return True
 
     async def _cleanup(self):
         await self._acquire_lock()
@@ -512,7 +359,7 @@ class MicroTetherDB:
             for key in keys:
                 try:
                     key_str = key.decode()
-                    if self._is_expired(key_str):
+                    if self._ttl_manager.is_expired(key_str):
                         del self._db[key]
                         deleted += 1
                 except (UnicodeDecodeError, ValueError):
@@ -528,6 +375,7 @@ class MicroTetherDB:
         self._last_cleanup = time.time()
         return result["deleted"] if result else 0
 
+    # Public API methods
     def put(self, *args, **kwargs):
         if len(args) == 2:
             key, data = args
@@ -573,6 +421,7 @@ class MicroTetherDB:
             self._loop.run_until_complete(self._process_next())
         return future.result()
 
+    # Context managers
     async def __aenter__(self):
         self._start_worker()
         return self
@@ -619,3 +468,19 @@ class MicroTetherDB:
             self.close()
         except Exception:
             pass
+
+    # Properties for backward compatibility and debugging
+    @property
+    def _ttl_index(self):
+        """Backward compatibility property"""
+        return self._ttl_manager._ttl_index
+    
+    @property
+    def _operation_counts(self):
+        """Backward compatibility property"""
+        return self._flush_manager.operation_counts
+    
+    @property
+    def _flush_counter(self):
+        """Backward compatibility property"""
+        return self._flush_manager.flush_counter
