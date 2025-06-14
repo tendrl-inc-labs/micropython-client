@@ -178,10 +178,20 @@ def file_exists(path):
 def verify_installation():
     """Verify that tendrl was installed correctly by checking for key files."""
     try:
-        # Check for core required files
+        # Check for core required files (included in both full and minimal)
         required_files = [
             "/lib/tendrl/__init__.py",
             "/lib/tendrl/client.py",
+            "/lib/tendrl/config_manager.py",
+            "/lib/tendrl/network_manager.py",
+            "/lib/tendrl/queue_manager.py",
+            "/lib/tendrl/websocket_handler.py",
+            "/lib/tendrl/lib/shutil.py",
+            "/lib/tendrl/lib/websockets.py",
+            "/lib/tendrl/utils/__init__.py",
+            "/lib/tendrl/utils/auth.py",
+            "/lib/tendrl/utils/memory.py",
+            "/lib/tendrl/utils/util_helpers.py",
             "/lib/tendrl/manifest.py",
             "/lib/tendrl/config.json"
         ]
@@ -192,8 +202,14 @@ def verify_installation():
                 "/lib/tendrl/lib/microtetherdb/__init__.py",
                 "/lib/tendrl/lib/microtetherdb/db.py",
                 "/lib/tendrl/lib/microtetherdb/core/__init__.py",
+                "/lib/tendrl/lib/microtetherdb/core/exceptions.py",
+                "/lib/tendrl/lib/microtetherdb/core/flush_manager.py",
+                "/lib/tendrl/lib/microtetherdb/core/future.py",
+                "/lib/tendrl/lib/microtetherdb/core/key_generator.py",
+                "/lib/tendrl/lib/microtetherdb/core/memory_file.py",
+                "/lib/tendrl/lib/microtetherdb/core/query_engine.py",
                 "/lib/tendrl/lib/microtetherdb/core/ttl_manager.py",
-                "/lib/tendrl/lib/microtetherdb/core/query_engine.py"
+                "/lib/tendrl/lib/microtetherdb/core/utils.py"
             ]
             required_files.extend(db_files)
 
@@ -248,8 +264,12 @@ def ensure_required_directories():
         # Create /lib/tendrl/lib directory if it doesn't exist
         ensure_directory_exists("/lib/tendrl/lib")
 
-        # Create /lib/tendrl/lib/microtetherdb directory if it doesn't exist
-        ensure_directory_exists("/lib/tendrl/lib/microtetherdb")
+        # Only create MicroTetherDB directories for full installation
+        if INCLUDE_DB:
+            # Create /lib/tendrl/lib/microtetherdb directory if it doesn't exist
+            ensure_directory_exists("/lib/tendrl/lib/microtetherdb")
+            # Create /lib/tendrl/lib/microtetherdb/core directory if it doesn't exist
+            ensure_directory_exists("/lib/tendrl/lib/microtetherdb/core")
 
         print("✅ Verified required directories")
         return True
