@@ -533,7 +533,7 @@ async def error_handling_example():
 
 ## Database Operations
 
-The SDK includes a built-in BTree database for local storage:
+The SDK includes a built-in BTree database for local storage powered by **MicroTetherDB**:
 
 ```python
 # Store data
@@ -554,6 +554,17 @@ client.db_delete("some_key")
 # Clean up expired entries
 client.db_cleanup()
 ```
+
+**📖 For complete database documentation, advanced features, and examples, see the [MicroTetherDB README](tendrl/lib/microtetherdb/README.md)**
+
+### Database Features
+
+- **Automatic TTL Management**: Items expire automatically
+- **Rich Queries**: MongoDB-style query operators ($gt, $lt, $in, etc.)
+- **Dual Storage Modes**: In-memory (fast) or file-based (persistent)
+- **Event Loop Integration**: Seamless async application integration
+- **Memory Efficient**: Configurable RAM usage
+- **Production Ready**: Comprehensive error handling and test coverage
 
 ## Configuration Management
 
