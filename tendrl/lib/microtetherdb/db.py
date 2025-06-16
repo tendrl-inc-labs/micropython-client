@@ -1,6 +1,7 @@
 import asyncio
 from collections import deque
 import gc
+import io
 import json
 import time
 import os
@@ -32,7 +33,7 @@ class MicroTetherDB:
         self.btree_cachesize = btree_cachesize
         self.btree_pagesize = btree_pagesize
         self.adaptive_threshold = adaptive_threshold
-        
+
         # Core components
         self._db = None
         self._db_handle = None
@@ -41,15 +42,15 @@ class MicroTetherDB:
         self._worker = None
         self._running = False
         self._queue = deque((), 50)
-        
+
         # Event loop handling - be more careful about when we get it
         self._loop = event_loop
         self._loop_provided = event_loop is not None
-        
+
         # Initialize managers
         self._ttl_manager = TTLManager()
         self._flush_manager = FlushManager(adaptive_threshold, in_memory)
-        
+
         try:
             self._init_db()
             # Only start worker if we're in an async context or loop was provided
@@ -79,7 +80,7 @@ class MicroTetherDB:
         """Safely get or create an event loop"""
         if self._loop is not None:
             return self._loop
-        
+
         try:
             # Try to get the running loop first
             self._loop = asyncio.get_running_loop()
@@ -91,7 +92,7 @@ class MicroTetherDB:
                 # Create a new loop if none exists
                 self._loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(self._loop)
-        
+
         return self._loop
 
     def _ensure_async_components(self):
@@ -104,7 +105,6 @@ class MicroTetherDB:
         try:
             gc.collect()
             if self.in_memory:
-                import io
                 self._db_handle = io.BytesIO()
             else:
                 # File-based storage initialization
@@ -112,7 +112,7 @@ class MicroTetherDB:
                 try:
                     self._db_handle = open(self.filename, "r+b")
                 except OSError:
-                    self._db_handle = open(self.filename, "w+b") 
+                    self._db_handle = open(self.filename, "w+b")
             try:
                 self._db = btree.open(
                     self._db_handle,
@@ -131,7 +131,7 @@ class MicroTetherDB:
             # Build TTL index from existing data
             keys = list(self._db.keys(None, None, btree.INCL))
             self._ttl_manager.rebuild_index(keys)
-            
+
             # Only run cleanup if we're in async context
             if self._is_async_context():
                 self._ensure_async_components()
@@ -144,10 +144,10 @@ class MicroTetherDB:
     def _start_worker(self):
         if self._running:
             return
-        
+
         self._ensure_async_components()
         self._running = True
-        
+
         loop = self._get_or_create_loop()
         self._worker = loop.create_task(self._worker_task())
 
@@ -156,21 +156,21 @@ class MicroTetherDB:
             while self._running:
                 try:
                     current_time = time.time()
-                    
+
                     # Frequent TTL checks
                     if self._ttl_manager.should_check_ttl(self.ttl_check_interval):
                         deleted = await self._ttl_manager.check_expiry(
-                            self._db, 
+                            self._db,
                             lambda: self._db.flush()
                         )
                         if deleted > 0:
                             print(f"TTL cleanup: removed {deleted} expired items")
-                    
+
                     # Full cleanup (less frequent, for safety/maintenance)
                     if (current_time - self._last_cleanup) >= self.cleanup_interval:
                         await self._cleanup()
                         self._last_cleanup = current_time
-                        
+
                     if not self._queue:
                         await asyncio.sleep(0.01)
                         continue
@@ -237,7 +237,7 @@ class MicroTetherDB:
                     self._ttl_manager.add_to_index(key, ttl)
                 except Exception:
                     raise
-                
+
                 self._flush_manager.record_operation("put")
                 self._flush_manager.flush_if_needed(self._db)
                 return key
@@ -293,7 +293,6 @@ class MicroTetherDB:
                 # Reopen database
                 if self.in_memory:
                     # Create fresh BytesIO for purged database
-                    import io
                     self._db_handle = io.BytesIO()
                 else:
                     ensure_dirs(self.filename)
@@ -358,7 +357,7 @@ class MicroTetherDB:
                 # Add to TTL index if has TTL
                 self._ttl_manager.add_to_index(key, item_ttl)
                 batch_keys.append(key)
-            
+
             self._flush_manager.record_operation("batch_put", len(batch_keys))
             self._flush_manager.flush_if_needed(self._db)
             return batch_keys
@@ -395,7 +394,7 @@ class MicroTetherDB:
                 if key in self._db:
                     del self._db[key]
                     deleted_count += 1
-            
+
             self._flush_manager.record_operation("batch_delete", deleted_count)
             self._flush_manager.flush_if_needed(self._db)
             return deleted_count
@@ -541,12 +540,12 @@ class MicroTetherDB:
     def _ttl_index(self):
         """Backward compatibility property"""
         return self._ttl_manager._ttl_index
-    
+
     @property
     def _operation_counts(self):
         """Backward compatibility property"""
         return self._flush_manager.operation_counts
-    
+
     @property
     def _flush_counter(self):
         """Backward compatibility property"""
