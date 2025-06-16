@@ -423,6 +423,18 @@ When using MicroTetherDB in async applications:
 - **Background Processing**: Non-blocking, runs between operations
 - **Cleanup Frequency**: Configurable from 1 second to hours
 
+### Storage Performance Comparison
+
+MicroTetherDB offers excellent performance in both memory and file-based storage modes:
+
+- **Memory Storage**: 2x faster overall system performance
+- **Batch Operations**: Memory storage is 25-167x faster than file storage
+- **Query Operations**: Memory storage is 33% faster than file storage
+- **Memory Overhead**: Only 15KB additional RAM usage for in-memory storage
+- **Reliability**: 100% operation success rate in comprehensive testing
+
+**📊 For detailed performance benchmarks, comparative analysis, and memory usage patterns, see the [Performance Analysis](../../tests/performance_analysis.md)**
+
 ### When to Adjust TTL Check Interval
 
 - **High TTL Usage**: Set to 1-5 seconds for responsive cleanup
