@@ -355,7 +355,7 @@ MicroTetherDB(
 - `in_memory`: Choose between memory (fast) or file (persistent) storage
 - `ram_percentage`: Memory limit as percentage of available RAM
 - `ttl_check_interval`: How often to check for expired TTL items (default: 60 seconds)
-- `adaptive_threshold`: Automatically adjust flush frequency based on operation patterns
+- `adaptive_threshold`: Automatically adjust flush frequency based on operation patterns (see Adaptive Threshold section below)
 - `event_loop`: Optional event loop for async operations (integrates with user applications)
 
 ## Limitations
@@ -438,6 +438,85 @@ When using MicroTetherDB in async applications:
 - **Low TTL Usage**: Set to 30-60 seconds to reduce overhead
 - **Battery Constrained**: Set to 60+ seconds to reduce CPU usage
 - **Real-time Applications**: Set to 1-2 seconds for immediate cleanup
+
+### Adaptive Threshold System
+
+The `adaptive_threshold` parameter controls whether MicroTetherDB automatically optimizes its flush behavior based on usage patterns and storage type.
+
+#### How It Works
+
+**When Enabled (adaptive_threshold=True - Default):**
+
+The database dynamically adjusts how often it flushes data to storage based on:
+
+1. **Storage Type Optimization:**
+   - **In-Memory Storage**: Uses moderate flush thresholds (5+ operations) for better individual operation performance
+   - **File-Based Storage**: Uses operation-count-based thresholds for optimal disk I/O
+
+2. **Operation Count Adaptation:**
+   - **< 100 operations**: Flush every 10 operations (low overhead)
+   - **100-1000 operations**: Flush every 15 operations (balanced)
+   - **> 1000 operations**: Flush every 20 operations (high throughput)
+
+**When Disabled (adaptive_threshold=False):**
+
+Uses a fixed flush threshold of 10 operations regardless of storage type or usage patterns.
+
+#### Performance Impact
+
+| Scenario | Adaptive Enabled | Adaptive Disabled |
+|----------|------------------|-------------------|
+| **Few Operations** | Lower flush frequency → Less overhead | Fixed frequency → May flush unnecessarily |
+| **Many Operations** | Higher flush frequency → Better memory management | Fixed frequency → May cause memory buildup |
+| **In-Memory Storage** | Optimized for BytesIO performance | Generic flush behavior |
+| **File Storage** | Optimized for disk I/O patterns | Generic flush behavior |
+
+#### When to Use Each Setting
+
+**Enable Adaptive Threshold (Recommended):**
+```python
+db = MicroTetherDB(
+    adaptive_threshold=True  # Default - automatically optimizes
+)
+```
+- **Default choice** for most applications
+- **Variable workloads** with changing operation patterns
+- **Mixed storage types** (switching between memory/file)
+- **Production applications** where you want optimal performance
+
+**Disable Adaptive Threshold:**
+```python
+db = MicroTetherDB(
+    adaptive_threshold=False  # Fixed threshold of 10 operations
+)
+```
+- **Predictable flush behavior** needed for testing
+- **Consistent timing requirements** for benchmarking
+- **Simple applications** with steady operation patterns
+- **Memory-critical applications** where you want guaranteed frequent flushes
+
+#### Example Usage Patterns
+
+```python
+# High-performance application with adaptive optimization
+high_perf_db = MicroTetherDB(
+    in_memory=True,
+    adaptive_threshold=True  # Automatically optimizes for in-memory performance
+)
+
+# Consistent testing environment
+test_db = MicroTetherDB(
+    adaptive_threshold=False  # Predictable flush behavior for testing
+)
+
+# Battery-constrained IoT device
+iot_db = MicroTetherDB(
+    in_memory=False,
+    adaptive_threshold=True  # Automatically reduces flush frequency when appropriate
+)
+```
+
+The adaptive threshold system helps balance performance, memory usage, and reliability without requiring manual tuning for different usage scenarios.
 
 ## Examples
 
