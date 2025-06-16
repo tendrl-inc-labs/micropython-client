@@ -23,24 +23,66 @@ Before installing the Tendrl SDK, you need to have MicroPython installed on your
 
 ## Installation
 
+The Tendrl SDK offers two installation options to suit different device constraints and use cases:
+
+### Installation Types Overview
+
+| Feature | Full Installation | Minimal Installation |
+|---------|------------------|---------------------|
+| **Client & Networking** | ✅ | ✅ |
+| **Message Publishing** | ✅ | ✅ |
+| **WebSocket Communication** | ✅ | ✅ |
+| **Client Database (MicroTetherDB)** | ✅ | ❌ |
+| **Offline Storage** | ✅ | ❌ |
+| **TTL Management** | ✅ | ❌ |
+| **Rich Queries** | ✅ | ❌ |
+| **Flash Storage Required** | ~150KB | ~100KB |
+| **Use Case** | Full-featured IoT applications | Resource-constrained devices |
+
+### Choosing Your Installation
+
+**Choose Full Installation if you need:**
+- Local data storage and caching
+- Offline message queuing
+- Rich database queries
+- TTL-based data expiration
+- Maximum feature set
+
+**Choose Minimal Installation if you need:**
+- Direct message sending only
+- Minimal flash storage usage
+- Simple networking without persistence
+- Maximum memory efficiency
+
 ### Option 1: Using the Install Script (Recommended)
 
-1. Download the install script from our GitHub repository:
+**Step 1**: Download the install script from our GitHub repository:
 
 ```python
 # https://github.com/tendrl-inc-labs/micropython-client/blob/main/install_script.py
 ```
 
+**Step 2**: Configure installation type by editing `install_script.py`:
+
+```python
+# At the top of install_script.py, set:
+INSTALL_DB = True   # Full installation with MicroTetherDB
+# OR
+INSTALL_DB = False  # Minimal installation without database
+```
+
+**Step 3**: Run the script on your device:
+
 #### Using Thonny IDE (Recommended for beginners)
 
 1. Install [Thonny IDE](https://thonny.org/)
 2. Open Thonny and select your MicroPython device
-3. Download `install_script.py` from our GitHub repository
-4. Open the file in Thonny and click "Run" to execute it
+3. Open the edited `install_script.py` in Thonny
+4. Click "Run" to execute the installation
 
 #### Using REPL (Alternative method)
 
-1. Upload `install_script.py` to your device using your preferred method
+1. Upload the edited `install_script.py` to your device
 2. Open the REPL (Python prompt) on your device
 3. Run the script:
 
@@ -49,11 +91,13 @@ import install_script
 install_script.main()
 ```
 
-The script will:
+The script will automatically:
 
+- Install the appropriate version based on your `INSTALL_DB` setting
 - Create a template `config.json` if it doesn't exist
 - Install the SDK to `/lib/tendrl`
 - Set up required directories and configurations
+- Display confirmation of installed features
 
 ### Option 2: Manual Installation
 
@@ -61,42 +105,7 @@ The script will:
 2. Copy the `tendrl/` directory to your device's `/lib` directory
 3. Create or update the `config.json` file in your device's root directory
 
-## Installation Types
 
-The Tendrl SDK offers two installation options to suit different device constraints:
-
-### Full Installation (Default)
-
-Includes all features:
-
-- Tendrl client and networking
-- MicroTetherDB (local database)
-- Offline message storage
-- Client database for application data
-- All utilities and helpers
-
-**Size**: ~150KB flash storage
-
-```python
-# Run on your MicroPython device
-exec(open("install_script.py").read())
-```
-
-### Minimal Installation
-
-Includes core features only:
-
-- Tendrl client and networking
-- Basic utilities (no local database)
-- Direct message sending only
-
-**Size**: ~100KB flash storage (saves ~50KB)
-
-```python
-# 1. Edit install_script.py: Set INSTALL_DB = False
-# 2. Run on your MicroPython device:
-exec(open("install_script.py").read())
-```
 
 ### Client Configuration by Installation Type
 
