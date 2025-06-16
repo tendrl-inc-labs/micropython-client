@@ -66,7 +66,7 @@ The Tendrl SDK offers two installation options to suit different device constrai
 
 ```python
 # At the top of install_script.py, set:
-INSTALL_DB = True   # Full installation with MicroTetherDB
+INSTALL_DB = True   # Full installation with MicroTetherDB (Default)
 # OR
 INSTALL_DB = False  # Minimal installation without database
 ```
