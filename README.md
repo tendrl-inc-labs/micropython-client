@@ -78,8 +78,8 @@ Includes all features:
 **Size**: ~150KB flash storage
 
 ```python
-# Install with full features (default)
-python install_script.py
+# Run on your MicroPython device
+exec(open("install_script.py").read())
 ```
 
 ### Minimal Installation
@@ -93,8 +93,9 @@ Includes core features only:
 **Size**: ~100KB flash storage (saves ~50KB)
 
 ```python
-# Install minimal version
-python install_script.py --no-db
+# 1. Edit install_script.py: Set INSTALL_DB = False
+# 2. Run on your MicroPython device:
+exec(open("install_script.py").read())
 ```
 
 ### Client Configuration by Installation Type
@@ -658,12 +659,14 @@ mip.install("github:tendrl-inc-labs/micropython-client/package-minimal.json", ta
 ### Using Install Script
 
 ```python
-# Full installation (default)
+# Edit INSTALL_DB variable in install_script.py, then run:
 exec(open("install_script.py").read())
-
-# Minimal installation
-exec(open("install_script.py --no-db").read())
 ```
+
+**Configuration**: Edit the `INSTALL_DB` variable at the top of `install_script.py`:
+
+- `INSTALL_DB = True` → Full installation with MicroTetherDB (default)
+- `INSTALL_DB = False` → Minimal installation without database (saves ~50KB)
 
 ## Quick Start
 

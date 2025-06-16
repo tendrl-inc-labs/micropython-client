@@ -24,14 +24,16 @@ The script will create a template for the user config if it doesn't exist.
 You must edit this file with your actual credentials before the library will work.
 
 Installation Options:
-- Default: Installs full Tendrl SDK including MicroTetherDB
-- Minimal: Use --no-db to exclude MicroTetherDB (saves ~50KB flash space)
-  Example: python install_script.py --no-db
+- Full installation: Set INSTALL_DB = True (default) - includes MicroTetherDB
+- Minimal installation: Set INSTALL_DB = False - excludes MicroTetherDB (saves ~50KB)
+
+Usage:
+1. Edit the INSTALL_DB variable below to choose installation type
+2. Run: exec(open("install_script.py").read())
 """
 
 import json
 import time
-import sys
 import os
 
 import network
@@ -58,30 +60,17 @@ MAX_INSTALL_RETRIES = 3
 WIFI_RETRY_DELAY = 5  # seconds
 INSTALL_RETRY_DELAY = 10  # seconds
 
-# Check for command line arguments
-INCLUDE_DB = True
-if len(sys.argv) > 1:
-    if "--no-db" in sys.argv:
-        INCLUDE_DB = False
-        print("🗃️ Installing without MicroTetherDB (minimal installation)")
-    elif "--help" in sys.argv or "-h" in sys.argv:
-        print("Tendrl MicroPython Installation Script")
-        print("")
-        print("Usage:")
-        print("  python install_script.py          # Full installation (default)")
-        print("  python install_script.py --no-db  # Minimal installation (no database)")
-        print("  python install_script.py --help   # Show this help")
-        print("")
-        print("Full installation includes:")
-        print("  - Tendrl client and networking")
-        print("  - MicroTetherDB (local database)")
-        print("  - All utilities and helpers")
-        print("")
-        print("Minimal installation includes:")
-        print("  - Tendrl client and networking")
-        print("  - Basic utilities (no local database)")
-        print("  - Saves ~50KB flash space")
-        sys.exit(0)
+# Configuration - Modify this before running the script
+INSTALL_DB = True  # Set to False for minimal installation (saves ~50KB)
+
+# Print installation type
+if INSTALL_DB:
+    print("🗃️ Installing full Tendrl SDK with MicroTetherDB")
+else:
+    print("🗃️ Installing minimal Tendrl SDK (no database)")
+
+# Use the INSTALL_DB variable for the rest of the script
+INCLUDE_DB = INSTALL_DB
 
 def create_user_config_template():
     """Create a template user config file if it doesn't exist."""
@@ -109,7 +98,7 @@ def load_config():
             return json.load(f)
     except Exception as e:
         print(f"❌ Failed to load config file: {e}")
-        sys.exit(1)
+        raise RuntimeError(f"Failed to load config file: {e}")
 
 def connect_wifi(ssid, password, timeout=10):
     wlan = None
@@ -330,12 +319,12 @@ def main():
             print("⚠️ User config not found")
             if not create_user_config_template():
                 print("❌ Failed to create user config template")
-                sys.exit(1)
+                return
             print("Required fields:")
             print("  - wifi_ssid: Your WiFi network name")
             print("  - wifi_pw: Your WiFi password")
             print("\nAfter filling in these details, run this script again.")
-            sys.exit(0)
+            return
 
         # Load user config
         config = load_config()
@@ -346,20 +335,20 @@ def main():
         if not ssid or not pw:
             print("⚠️ Missing Wi-Fi credentials in config.json")
             print("Please edit /config.json with your WiFi credentials and API key")
-            sys.exit(1)
+            return
 
         # Ensure all required directories exist
         if not ensure_required_directories():
             print("❌ Failed to create required directories")
-            sys.exit(1)
+            return
 
         if not connect_wifi(ssid, pw):
             print("❌ Failed to establish WiFi connection after all retries")
-            sys.exit(1)
+            return
 
         if not install_tendrl():
             print("❌ Failed to install tendrl after all retries")
-            sys.exit(1)
+            return
 
         print("✨ Installation completed successfully!")
         if INCLUDE_DB:
@@ -371,7 +360,7 @@ def main():
         print("⚠️ If you haven't already, please edit /config.json with your API key")
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
-        sys.exit(1)
+        return
 
 if __name__ == "__main__":
     main()
