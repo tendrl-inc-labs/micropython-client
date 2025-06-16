@@ -61,10 +61,9 @@ db.delete(purge=True)
 The database features an efficient TTL system that automatically removes expired items:
 
 ```python
-# Create database with custom TTL check frequency
+# Create database with custom TTL check frequency  
 db = MicroTetherDB(
-    ttl_check_interval=5,    # Check for expired items every 5 seconds
-    cleanup_interval=1800    # Full cleanup every 30 minutes
+    ttl_check_interval=10    # Check for expired items every 10 seconds (more frequent)
 )
 
 # Store data with different TTL values
@@ -342,8 +341,7 @@ MicroTetherDB(
     max_retries=3,                # Maximum retries for failed operations
     retry_delay=0.1,              # Delay between retries in seconds
     lock_timeout=5.0,             # Lock timeout in seconds
-    cleanup_interval=3600,        # Full cleanup interval in seconds (default: 1 hour)
-    ttl_check_interval=10,        # TTL expiry check interval in seconds (default: 10s)
+    ttl_check_interval=60,        # TTL expiry check interval in seconds (default: 60s)
     btree_cachesize=32,           # BTree cache size
     btree_pagesize=512,           # BTree page size
     adaptive_threshold=True,      # Enable adaptive flush threshold
@@ -356,8 +354,7 @@ MicroTetherDB(
 - `filename`: Database file path (only used when `in_memory=False`)
 - `in_memory`: Choose between memory (fast) or file (persistent) storage
 - `ram_percentage`: Memory limit as percentage of available RAM
-- `ttl_check_interval`: How often to check for expired TTL items (default: 10 seconds)
-- `cleanup_interval`: How often to run full database cleanup (default: 1 hour)
+- `ttl_check_interval`: How often to check for expired TTL items (default: 60 seconds)
 - `adaptive_threshold`: Automatically adjust flush frequency based on operation patterns
 - `event_loop`: Optional event loop for async operations (integrates with user applications)
 
@@ -422,7 +419,7 @@ When using MicroTetherDB in async applications:
    db = MicroTetherDB(ttl_check_interval=5, event_loop=loop)
    
    # For apps with infrequent async operations  
-   db = MicroTetherDB(ttl_check_interval=30, event_loop=loop)
+   db = MicroTetherDB(ttl_check_interval=120, event_loop=loop)
    ```
 
 ## Performance Characteristics
@@ -434,8 +431,6 @@ When using MicroTetherDB in async applications:
 - **Memory Overhead**: ~24 bytes per TTL item for index entry
 - **Background Processing**: Non-blocking, runs between operations
 - **Cleanup Frequency**: Configurable from 1 second to hours
-
-
 
 ### When to Adjust TTL Check Interval
 

@@ -19,8 +19,8 @@ from .core.key_generator import KeyGenerator
 
 class MicroTetherDB:
     def __init__(self, filename="microtether.db", in_memory=True, ram_percentage=25,
-                 max_retries=3, retry_delay=0.1, lock_timeout=5.0, cleanup_interval=3600,
-                 ttl_check_interval=10, btree_cachesize=32, btree_pagesize=512, adaptive_threshold=True,
+                 max_retries=3, retry_delay=0.1, lock_timeout=5.0,
+                 ttl_check_interval=60, btree_cachesize=32, btree_pagesize=512, adaptive_threshold=True,
                  event_loop=None):
         self.filename = filename
         self.in_memory = in_memory
@@ -28,7 +28,7 @@ class MicroTetherDB:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.lock_timeout = lock_timeout
-        self.cleanup_interval = cleanup_interval
+
         self.ttl_check_interval = ttl_check_interval
         self.btree_cachesize = btree_cachesize
         self.btree_pagesize = btree_pagesize
@@ -38,7 +38,6 @@ class MicroTetherDB:
         self._db = None
         self._db_handle = None
         self._lock = None  # Will be initialized when we have a loop
-        self._last_cleanup = 0
         self._worker = None
         self._running = False
         self._queue = deque((), 50)
@@ -132,11 +131,7 @@ class MicroTetherDB:
             keys = list(self._db.keys(None, None, btree.INCL))
             self._ttl_manager.rebuild_index(keys)
 
-            # Only run cleanup if we're in async context
-            if self._is_async_context():
-                self._ensure_async_components()
-                loop = self._get_or_create_loop()
-                loop.run_until_complete(self._cleanup())
+            # Database initialization complete
         except Exception as e:
             print(f"Error initializing database: {e}")
             raise
@@ -157,7 +152,7 @@ class MicroTetherDB:
                 try:
                     current_time = time.time()
 
-                    # Frequent TTL checks
+                    # TTL expiry checks
                     if self._ttl_manager.should_check_ttl(self.ttl_check_interval):
                         deleted = await self._ttl_manager.check_expiry(
                             self._db,
@@ -165,11 +160,6 @@ class MicroTetherDB:
                         )
                         if deleted > 0:
                             print(f"TTL cleanup: removed {deleted} expired items")
-
-                    # Full cleanup (less frequent, for safety/maintenance)
-                    if (current_time - self._last_cleanup) >= self.cleanup_interval:
-                        await self._cleanup()
-                        self._last_cleanup = current_time
 
                     if not self._queue:
                         await asyncio.sleep(0.01)
@@ -401,31 +391,7 @@ class MicroTetherDB:
         finally:
             self._lock.release()
 
-    async def _cleanup(self):
-        await self._acquire_lock()
-        try:
-            deleted = 0
-            keys = list(self._db.keys(None, None, btree.INCL))
-            for key in keys:
-                try:
-                    key_str = key.decode()
-                    if self._ttl_manager.is_expired(key_str):
-                        del self._db[key]
-                        deleted += 1
-                except (UnicodeDecodeError, ValueError):
-                    continue
-            if deleted > 0:
-                self._db.flush()
-            return {"deleted": deleted}
-        finally:
-            self._lock.release()
 
-    def cleanup(self):
-        self._ensure_async_components()
-        loop = self._get_or_create_loop()
-        result = loop.run_until_complete(self._cleanup())
-        self._last_cleanup = time.time()
-        return result["deleted"] if result else 0
 
     # Public API methods
     def put(self, *args, **kwargs):
