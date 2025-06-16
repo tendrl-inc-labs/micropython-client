@@ -6,7 +6,6 @@ A resource-optimized SDK for IoT and embedded devices, featuring a minimal memor
 
 - **Minimal Memory Footprint**: Optimized for devices with limited RAM
 - **API**: Easy to use in resource-constrained environments
-- **Command Processing**: Support for receiving and processing remote commands
 - **Configuration via JSON**: Uses config.json for device configuration
 - **BTree-based Offline Storage**: Efficient storage with minimal overhead
 - **Hardware Watchdog Integration**: Ensures reliability in unstable environments
