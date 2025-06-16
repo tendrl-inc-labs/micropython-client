@@ -77,6 +77,7 @@ db.put("temp_file", {"path": "/tmp/file"}, ttl=10)       # 10 seconds
 ```
 
 **TTL Features:**
+
 - **Efficient Index**: Uses a min-heap to track only items with TTLs
 - **Frequent Checks**: Expired items removed every 10 seconds by default
 - **No Full Scans**: Only checks items that might be expired
@@ -217,6 +218,57 @@ async def main():
 asyncio.run(main())
 ```
 
+### Event Loop Integration
+
+For applications that already have their own event loops, MicroTetherDB can integrate seamlessly:
+
+```python
+import asyncio
+from microtetherdb import MicroTetherDB
+
+async def user_application():
+    """Your existing async application"""
+    # Get your application's event loop
+    loop = asyncio.get_event_loop()
+    
+    # Create database with your event loop
+    db = MicroTetherDB(
+        filename="app_data.db",
+        in_memory=False,
+        event_loop=loop  # Use your event loop
+    )
+    
+    # Database operations work normally
+    with db as store:
+        store.put({"sensor": "temperature", "value": 25.5}, ttl=3600)
+        data = store.get("sensor_key")
+        results = store.query({"sensor": "temperature"})
+    
+    return results
+
+async def main():
+    # Your application controls the event loop
+    results = await user_application()
+    print(f"Results: {results}")
+
+# Run your application
+asyncio.run(main())
+```
+
+**Benefits of Event Loop Integration:**
+
+- **No Conflicts**: Database uses your application's event loop
+- **Shared Resources**: Better performance and resource utilization  
+- **Application Control**: Your app remains in control of async execution
+- **Seamless Integration**: Works with existing async applications
+
+**Event Loop Handling:**
+
+- If `event_loop` is provided, database uses it for all async operations
+- If no `event_loop` is provided, database detects the current running loop
+- Database creates its own loop only as a fallback
+- All async operations (TTL cleanup, worker tasks) use the same loop
+
 ## Features
 
 - In-memory storage by default (faster performance)
@@ -247,6 +299,7 @@ MicroTetherDB fills a critical gap in the MicroPython database ecosystem by comb
 | **Easy API** | ✅ | ❌ | ⚠️ | ✅ |
 
 **Key Differentiators:**
+
 - **Only MicroPython database with automatic TTL management** - perfect for IoT sensor data, caching, and session management
 - **MongoDB-style queries on microcontrollers** - no other lightweight solution offers this level of querying
 - **Intelligent memory management** - adapts to your device's available RAM
@@ -281,17 +334,20 @@ MicroTetherDB(
     ttl_check_interval=10,        # TTL expiry check interval in seconds (default: 10s)
     btree_cachesize=32,           # BTree cache size
     btree_pagesize=512,           # BTree page size
-    adaptive_threshold=True       # Enable adaptive flush threshold
+    adaptive_threshold=True,      # Enable adaptive flush threshold
+    event_loop=None               # Event loop for async operations (optional)
 )
 ```
 
 **Key Parameters:**
+
 - `filename`: Database file path (only used when `in_memory=False`)
 - `in_memory`: Choose between memory (fast) or file (persistent) storage
 - `ram_percentage`: Memory limit as percentage of available RAM
 - `ttl_check_interval`: How often to check for expired TTL items (default: 10 seconds)
 - `cleanup_interval`: How often to run full database cleanup (default: 1 hour)
 - `adaptive_threshold`: Automatically adjust flush frequency based on operation patterns
+- `event_loop`: Optional event loop for async operations (integrates with user applications)
 
 ## Limitations
 
@@ -317,23 +373,66 @@ MicroTetherDB(
 10. Use batch operations for better performance
 11. Monitor operation counts for adaptive threshold tuning
 12. The database automatically adjusts flush thresholds based on operation patterns
+13. **For async applications, provide your event loop to avoid conflicts**
+14. **Use context managers for proper async resource management**
+
+## Async Best Practices
+
+When using MicroTetherDB in async applications:
+
+1. **Provide Your Event Loop**: Always pass your application's event loop to avoid conflicts
+
+   ```python
+   loop = asyncio.get_event_loop()
+   db = MicroTetherDB(event_loop=loop)
+   ```
+
+2. **Use Context Managers**: Ensure proper resource cleanup in async contexts
+
+   ```python
+   async with MicroTetherDB(event_loop=loop) as db:
+       # Database operations
+       pass
+   ```
+
+3. **Shared Event Loop**: Multiple database instances can share the same event loop
+
+   ```python
+   loop = asyncio.get_event_loop()
+   client_db = MicroTetherDB("client.db", event_loop=loop)
+   cache_db = MicroTetherDB("cache.db", event_loop=loop)
+   ```
+
+4. **TTL in Async Apps**: Adjust TTL check intervals based on your async task frequency
+
+   ```python
+   # For apps with frequent async operations
+   db = MicroTetherDB(ttl_check_interval=5, event_loop=loop)
+   
+   # For apps with infrequent async operations  
+   db = MicroTetherDB(ttl_check_interval=30, event_loop=loop)
+   ```
 
 ## Performance Characteristics
 
-### TTL System Performance:
+### TTL System Performance
+
 - **Index Maintenance**: O(log n) for adding TTL items
 - **Expiry Checking**: O(k) where k = number of expired items (not total items)
 - **Memory Overhead**: ~24 bytes per TTL item for index entry
 - **Background Processing**: Non-blocking, runs between operations
 - **Cleanup Frequency**: Configurable from 1 second to hours
 
-### When to Adjust TTL Check Interval:
+### When to Adjust TTL Check Interval
+
 - **High TTL Usage**: Set to 1-5 seconds for responsive cleanup
 - **Low TTL Usage**: Set to 30-60 seconds to reduce overhead
 - **Battery Constrained**: Set to 60+ seconds to reduce CPU usage
 - **Real-time Applications**: Set to 1-2 seconds for immediate cleanup
 
-## Example
+## Examples
+
+### Basic Usage
 
 ```python
 from microtetherdb import MicroTetherDB
@@ -379,3 +478,58 @@ finally:
     # Cleanup is automatic, but you can force it
     db.cleanup()
 ```
+
+### Async Integration Example
+
+```python
+import asyncio
+from microtetherdb import MicroTetherDB
+
+async def sensor_data_manager():
+    """Example async application with database integration"""
+    
+    # Get current event loop
+    loop = asyncio.get_event_loop()
+    
+    # Create database with event loop integration
+    async with MicroTetherDB(
+        filename="sensors.db",
+        in_memory=False,
+        ttl_check_interval=5,  # Check TTL every 5 seconds
+        event_loop=loop        # Use our event loop
+    ) as db:
+        
+        # Simulate sensor data collection
+        for i in range(10):
+            sensor_data = {
+                "temperature": 20 + i,
+                "humidity": 50 + (i * 2),
+                "timestamp": asyncio.get_event_loop().time()
+            }
+            
+            # Store with 30-second TTL
+            key = db.put(sensor_data, ttl=30, tags=["sensor", "environment"])
+            print(f"Stored sensor data: {key}")
+            
+            # Query recent data
+            recent_data = db.query({
+                "temperature": {"$gt": 22},
+                "tags": "environment"
+            })
+            print(f"Recent high temperature readings: {len(recent_data)}")
+            
+            # Wait before next reading
+            await asyncio.sleep(2)
+        
+        # Final cleanup (automatic, but shown for demonstration)
+        cleaned = db.cleanup()
+        print(f"Final cleanup: {cleaned} expired entries")
+
+# Run the async application
+asyncio.run(sensor_data_manager())
+```
+
+## License
+
+Copyright (c) 2025 tendrl, inc.
+All rights reserved. Unauthorized copying, distribution, modification, or usage of this code, via any medium, is strictly prohibited without express permission from the author.

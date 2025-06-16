@@ -38,32 +38,32 @@ The test suite ran comprehensive performance tests comparing in-memory and file-
 
 ### 1. Basic Operations
 
-- **Put Operations**: 
+- **Put Operations**
   - Memory: 9.46ms average (range: 7-12ms)
   - File: 8.31ms average (range: 7-10ms)
   - File slightly faster by 1.15ms due to btree optimization for file streams
   - 13 operations with 100% success rate
 
-- **Get Operations**:
+- **Get Operations**
   - Memory: 5.75ms average
   - File: 6.00ms average  
   - Memory 4% faster, showing BytesIO efficiency
   - 4 operations with 100% success rate
 
-- **Delete Operations**:
+- **Delete Operations**
   - Both implementations: Identical 6ms performance
   - CPU-bound operation independent of storage type
   - 1 operation with 100% success rate
 
 ### 2. Batch Operations
 
-- **Batch Put**:
+- **Batch Put**
   - Memory: 36.75ms average (**25.15x faster**)
   - File: 924.25ms average
   - 4 batches with 43 total items (avg 10.75 items per batch)
   - 100% success rate
 
-- **Batch Delete**:
+- **Batch Delete**
   - Memory: 9.00ms average (**167.33x faster**)
   - File: 1506.00ms average
   - 2 batches with 12 items (avg 6 items per batch)
@@ -120,13 +120,13 @@ The test suite ran comprehensive performance tests comparing in-memory and file-
 
 ## Recommendations
 
-1. **Use Cases**:
+1. **Use Cases**
    - **Batch Operations**: Strongly prefer memory storage (25-167x faster)
    - **Query Operations**: Prefer memory storage (33% faster)
    - **Individual Operations**: Both implementations viable
    - **High-Throughput Systems**: Memory storage for 2x faster overall performance
 
-2. **Best Practices**:
+2. **Best Practices**
    - Use memory storage for write-heavy applications
    - Use memory storage for batch processing workloads
    - Consider file storage when persistence is critical

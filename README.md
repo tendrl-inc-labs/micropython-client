@@ -19,6 +19,7 @@ Before installing the Tendrl SDK, you need to have MicroPython installed on your
 
 - [ESP32 Setup Guide](https://docs.micropython.org/en/latest/esp32/tutorial/intro.html#esp32-intro)
 - [ESP8266 Setup Guide](https://docs.micropython.org/en/latest/esp8266/tutorial/intro.html)
+    (ESP8266 RAM limitations make it difficult to use as a library alone. Freeze into firmware or use new v1.25.0 ROMFS build)
 - [Raspberry Pi Pico W Setup Guide](https://docs.micropython.org/en/latest/rp2/quickref.html)
 
 ## Installation
@@ -68,6 +69,7 @@ The Tendrl SDK offers two installation options to suit different device constrai
 ### Full Installation (Default)
 
 Includes all features:
+
 - Tendrl client and networking
 - MicroTetherDB (local database)
 - Offline message storage
@@ -84,6 +86,7 @@ python install_script.py
 ### Minimal Installation
 
 Includes core features only:
+
 - Tendrl client and networking
 - Basic utilities (no local database)
 - Direct message sending only
@@ -213,7 +216,10 @@ The SDK provides several initialization options:
 | `watchdog` | `int` | `0` | Watchdog timer period (0 to disable) |
 | `send_heartbeat` | `bool` | `True` | Enable heartbeat messages |
 | `client_db` | `bool` | `True` | Enable client database |
+| `client_db_in_memory` | `bool` | `True` | Use in-memory storage for client database |
+| `offline_storage` | `bool` | `True` | Enable offline message storage |
 | `managed` | `bool` | `True` | Enable managed mode (WiFi, queuing, offline storage) |
+| `event_loop` | `asyncio.AbstractEventLoop` | `None` | Event loop for async mode (integrates with user applications) |
 
 ## Operation Modes
 
@@ -335,7 +341,6 @@ Both modes require:
 ```json
 {
     "api_key": "your_api_key",
-    "app_url": "https://app.tendrl.com"
 }
 ```
 
@@ -448,11 +453,62 @@ asyncio.run(main())
 - Devices with sufficient RAM (recommended 256KB+)
 - Platforms like ESP32 with native asyncio
 
+### Event Loop Integration
+
+For applications that already have their own event loops, you can integrate the Tendrl client seamlessly:
+
+```python
+import uasyncio as asyncio
+from tendrl import Client
+
+async def user_sensor_task():
+    """Your existing async task"""
+    while True:
+        # Your sensor reading logic
+        print("Reading sensors...")
+        await asyncio.sleep(5)
+
+async def main():
+    # Get your application's event loop
+    loop = asyncio.get_event_loop()
+    
+    # Pass your loop to the client
+    client = Client(
+        mode="async",
+        event_loop=loop,  # Use your event loop
+        debug=True
+    )
+    
+    # Start client on your loop
+    client.start()
+    
+    # Start your own tasks
+    sensor_task = asyncio.create_task(user_sensor_task())
+    
+    # Both run concurrently on the same loop
+    await asyncio.sleep(30)
+    
+    # Clean up
+    sensor_task.cancel()
+    await client.async_stop()
+
+# Run your application
+asyncio.run(main())
+```
+
+**Benefits of Event Loop Integration:**
+
+- No event loop conflicts
+- Client integrates with existing async applications
+- Shared resources and better performance
+- Application remains in control of the event loop
+
 ### Async Configuration Options
 
 ```python
 client = Client(
     mode="async",           # Enable async mode
+    event_loop=your_loop,   # Optional: use your event loop
     async_timeout=10,       # Global async operation timeout
     max_async_tasks=5,      # Maximum concurrent async tasks
     async_retry_count=3,    # Number of retry attempts for async operations
@@ -537,29 +593,13 @@ client.start(watchdog=30)
 
 The SDK automatically manages network connections:
 
-```python
-# Force a connection attempt
-client._connect()  # In sync mode
-# or
-await client._async_connect()  # In async mode
+### Check connection status
 
-# Check connection status
+```python
 if client.client_enabled:
     print("Connected to Tendrl server")
 else:
     print("Not connected")
-```
-
-## Offline Operation
-
-The SDK stores messages when offline and sends them when reconnected:
-
-```python
-# Process offline queue manually
-client._process_offline_queue()
-
-# Send offline messages manually
-client._send_offline_messages()
 ```
 
 ## Memory Management
@@ -581,17 +621,14 @@ print(f"Free memory: {free_mem} bytes")
 
 - MicroPython 1.15+
 - ESP32, Raspberry Pi Pico W, STM32, nRF52
-- Memory requirement: ~100KB RAM minimum
-
-## License
-
-Copyright (c) 2025 tendrl, inc.
-All rights reserved. Unauthorized copying, distribution, modification, or usage of this code, via any medium, is strictly prohibited without express permission from the author.
+- Memory requirement: ~100KB RAM minimum (much less RAM needed is using frozen or in ROMFS)
 
 ## Installation Options
 
 ### Full Installation (Recommended)
+
 Includes MicroTetherDB for local data storage and caching:
+
 ```python
 # Run on your MicroPython device
 import mip
@@ -599,7 +636,9 @@ mip.install("github:tendrl-inc-labs/micropython-client/package.json", target="/l
 ```
 
 ### Minimal Installation
+
 Excludes MicroTetherDB to save ~50KB flash space:
+
 ```python
 # Run on your MicroPython device  
 import mip
@@ -607,6 +646,7 @@ mip.install("github:tendrl-inc-labs/micropython-client/package-minimal.json", ta
 ```
 
 ### Using Install Script
+
 ```python
 # Full installation (default)
 exec(open("install_script.py").read())
@@ -618,6 +658,7 @@ exec(open("install_script.py --no-db").read())
 ## Quick Start
 
 ### With Database (Full Installation)
+
 ```python
 from tendrl import Client
 
@@ -647,6 +688,7 @@ results = client.db_query({"sensor": "temp"})
 ```
 
 ### Without Database (Minimal Installation)
+
 ```python
 from tendrl import Client
 
@@ -680,12 +722,14 @@ client.publish({"sensor": "temp", "value": 23.5})
 The Tendrl client can use up to two separate databases:
 
 ### Main Storage Database (Offline Messages)
+
 - **Purpose**: Internal message queuing and offline storage
 - **Storage**: Always file-based (`/lib/tendrl/tether.db`) when enabled
 - **Persistence**: Survives device restarts
 - **Control**: `offline_storage=True/False`
 
 ### Client Database (Your Data)
+
 - **Purpose**: Your application data storage
 - **Storage**: Configurable (in-memory or file-based)
 - **Access**: Via `client.db_*` methods
@@ -698,6 +742,7 @@ client = Client(
     client_db_in_memory=True, # Fast in-memory
     offline_storage=True      # Offline message queue
 )
+
 # ✅ Full offline capabilities
 # ✅ Fast client database
 # ❌ Higher memory usage
@@ -730,3 +775,8 @@ client = Client(
 # ❌ No local data storage
 # ❌ No offline capabilities
 ```
+
+## License
+
+Copyright (c) 2025 tendrl, inc.
+All rights reserved. Unauthorized copying, distribution, modification, or usage of this code, via any medium, is strictly prohibited without express permission from the author.

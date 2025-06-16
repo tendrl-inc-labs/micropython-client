@@ -19,7 +19,8 @@ from .core.key_generator import KeyGenerator
 class MicroTetherDB:
     def __init__(self, filename="microtether.db", in_memory=True, ram_percentage=25,
                  max_retries=3, retry_delay=0.1, lock_timeout=5.0, cleanup_interval=3600,
-                 ttl_check_interval=10, btree_cachesize=32, btree_pagesize=512, adaptive_threshold=True):
+                 ttl_check_interval=10, btree_cachesize=32, btree_pagesize=512, adaptive_threshold=True,
+                 event_loop=None):
         self.filename = filename
         self.in_memory = in_memory
         self.ram_percentage = ram_percentage
@@ -35,12 +36,15 @@ class MicroTetherDB:
         # Core components
         self._db = None
         self._db_handle = None
-        self._lock = asyncio.Lock()
+        self._lock = None  # Will be initialized when we have a loop
         self._last_cleanup = 0
         self._worker = None
         self._running = False
         self._queue = deque((), 50)
-        self._loop = asyncio.get_event_loop()
+        
+        # Event loop handling - be more careful about when we get it
+        self._loop = event_loop
+        self._loop_provided = event_loop is not None
         
         # Initialize managers
         self._ttl_manager = TTLManager()
@@ -48,7 +52,9 @@ class MicroTetherDB:
         
         try:
             self._init_db()
-            self._start_worker()
+            # Only start worker if we're in an async context or loop was provided
+            if self._loop_provided or self._is_async_context():
+                self._start_worker()
         except MemoryError:
             # If we get a memory error, try to fall back to file-based storage
             if self.in_memory:
@@ -56,9 +62,43 @@ class MicroTetherDB:
                 self.in_memory = False
                 self._flush_manager = FlushManager(adaptive_threshold, False)
                 self._init_db()
-                self._start_worker()
+                if self._loop_provided or self._is_async_context():
+                    self._start_worker()
             else:
                 raise
+
+    def _is_async_context(self):
+        """Check if we're in an async context"""
+        try:
+            asyncio.get_running_loop()
+            return True
+        except RuntimeError:
+            return False
+
+    def _get_or_create_loop(self):
+        """Safely get or create an event loop"""
+        if self._loop is not None:
+            return self._loop
+        
+        try:
+            # Try to get the running loop first
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, try to get the event loop
+            try:
+                self._loop = asyncio.get_event_loop()
+            except RuntimeError:
+                # Create a new loop if none exists
+                self._loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._loop)
+        
+        return self._loop
+
+    def _ensure_async_components(self):
+        """Ensure async components are initialized"""
+        if self._lock is None:
+            self._get_or_create_loop()
+            self._lock = asyncio.Lock()
 
     def _init_db(self):
         try:
@@ -91,7 +131,12 @@ class MicroTetherDB:
             # Build TTL index from existing data
             keys = list(self._db.keys(None, None, btree.INCL))
             self._ttl_manager.rebuild_index(keys)
-            self._loop.run_until_complete(self._cleanup())
+            
+            # Only run cleanup if we're in async context
+            if self._is_async_context():
+                self._ensure_async_components()
+                loop = self._get_or_create_loop()
+                loop.run_until_complete(self._cleanup())
         except Exception as e:
             print(f"Error initializing database: {e}")
             raise
@@ -99,8 +144,12 @@ class MicroTetherDB:
     def _start_worker(self):
         if self._running:
             return
+        
+        self._ensure_async_components()
         self._running = True
-        self._worker = asyncio.create_task(self._worker_task())
+        
+        loop = self._get_or_create_loop()
+        self._worker = loop.create_task(self._worker_task())
 
     async def _worker_task(self):
         try:
@@ -317,6 +366,7 @@ class MicroTetherDB:
             self._lock.release()
 
     def delete_batch(self, keys):
+        self._ensure_async_components()
         if not isinstance(keys, list):
             if hasattr(keys, '__iter__'):
                 keys = list(keys)
@@ -325,7 +375,8 @@ class MicroTetherDB:
         future = Future()
         self._queue.append((future, "delete_batch", (keys,), {}))
         if len(self._queue) == 1:
-            self._loop.run_until_complete(self._process_next())
+            loop = self._get_or_create_loop()
+            loop.run_until_complete(self._process_next())
         result = future.result()
         return result if result is not None else 0
 
@@ -371,12 +422,15 @@ class MicroTetherDB:
             self._lock.release()
 
     def cleanup(self):
-        result = self._loop.run_until_complete(self._cleanup())
+        self._ensure_async_components()
+        loop = self._get_or_create_loop()
+        result = loop.run_until_complete(self._cleanup())
         self._last_cleanup = time.time()
         return result["deleted"] if result else 0
 
     # Public API methods
     def put(self, *args, **kwargs):
+        self._ensure_async_components()
         if len(args) == 2:
             key, data = args
             kwargs['_id'] = key
@@ -386,39 +440,48 @@ class MicroTetherDB:
         future = Future()
         self._queue.append((future, "put", (data_arg,), kwargs))
         if len(self._queue) == 1:
-            self._loop.run_until_complete(self._process_next())
+            loop = self._get_or_create_loop()
+            loop.run_until_complete(self._process_next())
         return future.result()
 
     def get(self, key):
+        self._ensure_async_components()
         future = Future()
         try:
             self._queue.append((future, "get", (key,), {}))
             if len(self._queue) == 1:
-                self._loop.run_until_complete(self._process_next())
+                loop = self._get_or_create_loop()
+                loop.run_until_complete(self._process_next())
             result = future.result()
             return result
         except Exception as e:
             raise
 
     def delete(self, key=None, purge=False):
+        self._ensure_async_components()
         future = Future()
         self._queue.append((future, "delete", (key,), {"purge": purge}))
         if len(self._queue) == 1:
-            self._loop.run_until_complete(self._process_next())
+            loop = self._get_or_create_loop()
+            loop.run_until_complete(self._process_next())
         return future.result()
 
     def query(self, query_dict):
+        self._ensure_async_components()
         future = Future()
         self._queue.append((future, "query", (query_dict,), {}))
         if len(self._queue) == 1:
-            self._loop.run_until_complete(self._process_next())
+            loop = self._get_or_create_loop()
+            loop.run_until_complete(self._process_next())
         return future.result()
 
     def put_batch(self, items, ttls=None):
+        self._ensure_async_components()
         future = Future()
         self._queue.append((future, "put_batch", (items,), {"ttls": ttls}))
         if len(self._queue) == 1:
-            self._loop.run_until_complete(self._process_next())
+            loop = self._get_or_create_loop()
+            loop.run_until_complete(self._process_next())
         return future.result()
 
     # Context managers
@@ -443,8 +506,12 @@ class MicroTetherDB:
         if self._worker:
             self._worker.cancel()
             try:
-                self._loop.run_until_complete(self._worker)
+                if self._loop:
+                    self._loop.run_until_complete(self._worker)
             except asyncio.CancelledError:
+                pass
+            except RuntimeError:
+                # Event loop might be closed
                 pass
             self._worker = None
 
