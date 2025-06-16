@@ -18,7 +18,7 @@ from .core.key_generator import KeyGenerator
 
 
 class MicroTetherDB:
-    def __init__(self, filename="microtether.db", in_memory=True, ram_percentage=25,
+    def __init__(self, filename="microtether.db", in_memory=True, ram_percentage=15,
                  max_retries=3, retry_delay=0.1, lock_timeout=5.0,
                  ttl_check_interval=60, btree_cachesize=32, btree_pagesize=512, adaptive_threshold=True,
                  event_loop=None):

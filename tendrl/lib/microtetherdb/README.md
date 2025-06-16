@@ -27,7 +27,7 @@ db = MicroTetherDB(
 
 # Create an in-memory database with custom memory allocation
 db = MicroTetherDB(
-    ram_percentage=30  # use 30% of available free memory
+    ram_percentage=20  # use 20% of available free memory
 )
 
 # Store data with optional TTL (time-to-live in seconds)
@@ -337,7 +337,7 @@ The database supports the following query operators:
 MicroTetherDB(
     filename="microtether.db",    # Database filename (for file storage)
     in_memory=True,               # Use in-memory storage (default: True)
-    ram_percentage=25,            # Percentage of free memory to use (default: 25)
+    ram_percentage=15,            # Percentage of free memory to use (default: 15)
     max_retries=3,                # Maximum retries for failed operations
     retry_delay=0.1,              # Delay between retries in seconds
     lock_timeout=5.0,             # Lock timeout in seconds
