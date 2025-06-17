@@ -22,11 +22,18 @@ The installation process involves two configuration files:
 
 The script will create a template for the user config if it doesn't exist.
 You must edit this file with your actual credentials before the library will work.
+
+Installation Options:
+- Full installation: Set INSTALL_DB = True (default) - includes MicroTetherDB
+- Minimal installation: Set INSTALL_DB = False - excludes MicroTetherDB (saves ~50KB)
+
+Usage:
+1. Edit the INSTALL_DB variable below to choose installation type
+2. Run: exec(open("install_script.py").read())
 """
 
 import json
 import time
-import sys
 import os
 
 import network
@@ -52,6 +59,18 @@ MAX_WIFI_RETRIES = 3
 MAX_INSTALL_RETRIES = 3
 WIFI_RETRY_DELAY = 5  # seconds
 INSTALL_RETRY_DELAY = 10  # seconds
+
+# Configuration - Modify this before running the script
+INSTALL_DB = True  # Set to False for minimal installation (saves ~50KB)
+
+# Print installation type
+if INSTALL_DB:
+    print("🗃️ Installing full Tendrl SDK with MicroTetherDB")
+else:
+    print("🗃️ Installing minimal Tendrl SDK (no database)")
+
+# Use the INSTALL_DB variable for the rest of the script
+INCLUDE_DB = INSTALL_DB
 
 def create_user_config_template():
     """Create a template user config file if it doesn't exist."""
@@ -79,7 +98,7 @@ def load_config():
             return json.load(f)
     except Exception as e:
         print(f"❌ Failed to load config file: {e}")
-        sys.exit(1)
+        raise RuntimeError(f"Failed to load config file: {e}")
 
 def connect_wifi(ssid, password, timeout=10):
     wlan = None
@@ -148,15 +167,40 @@ def file_exists(path):
 def verify_installation():
     """Verify that tendrl was installed correctly by checking for key files."""
     try:
-        # Check for some key files
+        # Check for core required files (included in both full and minimal)
         required_files = [
             "/lib/tendrl/__init__.py",
             "/lib/tendrl/client.py",
+            "/lib/tendrl/config_manager.py",
+            "/lib/tendrl/network_manager.py",
+            "/lib/tendrl/queue_manager.py",
+            "/lib/tendrl/websocket_handler.py",
+            "/lib/tendrl/lib/shutil.py",
+            "/lib/tendrl/lib/websockets.py",
+            "/lib/tendrl/utils/__init__.py",
+            "/lib/tendrl/utils/auth.py",
+            "/lib/tendrl/utils/memory.py",
+            "/lib/tendrl/utils/util_helpers.py",
             "/lib/tendrl/manifest.py",
-            "/lib/tendrl/config.json",
-            "/lib/tendrl/lib/microtetherdb/__init__.py",
-            "/lib/tendrl/lib/microtetherdb/MicroTetherDB.py"
+            "/lib/tendrl/config.json"
         ]
+
+        # Add database files only if database was included
+        if INCLUDE_DB:
+            db_files = [
+                "/lib/tendrl/lib/microtetherdb/__init__.py",
+                "/lib/tendrl/lib/microtetherdb/db.py",
+                "/lib/tendrl/lib/microtetherdb/core/__init__.py",
+                "/lib/tendrl/lib/microtetherdb/core/exceptions.py",
+                "/lib/tendrl/lib/microtetherdb/core/flush_manager.py",
+                "/lib/tendrl/lib/microtetherdb/core/future.py",
+                "/lib/tendrl/lib/microtetherdb/core/key_generator.py",
+                "/lib/tendrl/lib/microtetherdb/core/memory_file.py",
+                "/lib/tendrl/lib/microtetherdb/core/query_engine.py",
+                "/lib/tendrl/lib/microtetherdb/core/ttl_manager.py",
+                "/lib/tendrl/lib/microtetherdb/core/utils.py"
+            ]
+            required_files.extend(db_files)
 
         for file in required_files:
             if not file_exists(file):
@@ -209,8 +253,12 @@ def ensure_required_directories():
         # Create /lib/tendrl/lib directory if it doesn't exist
         ensure_directory_exists("/lib/tendrl/lib")
 
-        # Create /lib/tendrl/lib/microtetherdb directory if it doesn't exist
-        ensure_directory_exists("/lib/tendrl/lib/microtetherdb")
+        # Only create MicroTetherDB directories for full installation
+        if INCLUDE_DB:
+            # Create /lib/tendrl/lib/microtetherdb directory if it doesn't exist
+            ensure_directory_exists("/lib/tendrl/lib/microtetherdb")
+            # Create /lib/tendrl/lib/microtetherdb/core directory if it doesn't exist
+            ensure_directory_exists("/lib/tendrl/lib/microtetherdb/core")
 
         print("✅ Verified required directories")
         return True
@@ -221,14 +269,22 @@ def ensure_required_directories():
 def install_tendrl():
     for attempt in range(MAX_INSTALL_RETRIES):
         try:
-            print(f"⬇️ Attempt {attempt + 1}/{MAX_INSTALL_RETRIES}: Installing tendrl...")
+            if INCLUDE_DB:
+                print(f"⬇️ Attempt {attempt + 1}/{MAX_INSTALL_RETRIES}: Installing full Tendrl SDK...")
+            else:
+                print(f"⬇️ Attempt {attempt + 1}/{MAX_INSTALL_RETRIES}: Installing minimal Tendrl SDK...")
 
             # Ensure all required directories exist
             if not ensure_required_directories():
                 raise RuntimeError("Failed to create required directories")
 
-            # Install using package.json with github: prefix
-            mip.install("github:tendrl-inc-labs/micropython-client/package.json", target="/lib")
+            # Install using appropriate package.json
+            if INCLUDE_DB:
+                # Full installation with database
+                mip.install("github:tendrl-inc-labs/micropython-client/package.json", target="/lib")
+            else:
+                # Minimal installation without database
+                mip.install("github:tendrl-inc-labs/micropython-client/package-minimal.json", target="/lib")
 
             # Create the library config file
             if not create_library_config():
@@ -236,7 +292,12 @@ def install_tendrl():
 
             # Verify the installation
             if verify_installation():
-                print("✅ tendrl installed and verified successfully")
+                if INCLUDE_DB:
+                    print("✅ Full Tendrl SDK installed and verified successfully")
+                    print("📊 Includes MicroTetherDB for local data storage")
+                else:
+                    print("✅ Minimal Tendrl SDK installed and verified successfully")
+                    print("⚠️ Note: Local database features disabled (client_db=False required)")
                 return True
             else:
                 raise RuntimeError("Installation verification failed")
@@ -258,12 +319,12 @@ def main():
             print("⚠️ User config not found")
             if not create_user_config_template():
                 print("❌ Failed to create user config template")
-                sys.exit(1)
+                return
             print("Required fields:")
             print("  - wifi_ssid: Your WiFi network name")
             print("  - wifi_pw: Your WiFi password")
             print("\nAfter filling in these details, run this script again.")
-            sys.exit(0)
+            return
 
         # Load user config
         config = load_config()
@@ -274,26 +335,32 @@ def main():
         if not ssid or not pw:
             print("⚠️ Missing Wi-Fi credentials in config.json")
             print("Please edit /config.json with your WiFi credentials and API key")
-            sys.exit(1)
+            return
 
         # Ensure all required directories exist
         if not ensure_required_directories():
             print("❌ Failed to create required directories")
-            sys.exit(1)
+            return
 
         if not connect_wifi(ssid, pw):
             print("❌ Failed to establish WiFi connection after all retries")
-            sys.exit(1)
+            return
 
         if not install_tendrl():
             print("❌ Failed to install tendrl after all retries")
-            sys.exit(1)
+            return
 
         print("✨ Installation completed successfully!")
+        if INCLUDE_DB:
+            print("📊 MicroTetherDB is available for local data storage")
+            print("💡 Use client_db=True in Client() constructor (default)")
+        else:
+            print("⚠️ MicroTetherDB not installed - use client_db=False in Client() constructor")
+            print("💡 This saves ~50KB flash space but disables local database features")
         print("⚠️ If you haven't already, please edit /config.json with your API key")
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
-        sys.exit(1)
+        return
 
 if __name__ == "__main__":
     main()

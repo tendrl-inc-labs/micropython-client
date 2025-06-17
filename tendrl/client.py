@@ -19,7 +19,7 @@ except ImportError:
     ASYNCIO_AVAILABLE = False
 try:
     import btree
-    from tendrl.lib.microtetherdb.MicroTetherDB import MicroTetherDB
+    from tendrl.lib.microtetherdb.db import MicroTetherDB
     BTREE_AVAILABLE = True
 except ImportError:
     BTREE_AVAILABLE = False
@@ -43,15 +43,25 @@ class DBError(Exception):
 class Client:
     def __init__(self,mode="sync",debug=False,timer=0,freq=3,callback=None,
         check_msg_rate=5,max_batch_size=15,db_page_size=1024,watchdog=0,
-        send_heartbeat=True, client_db=True, managed=True):
+        send_heartbeat=True, client_db=True, client_db_in_memory=True,
+        offline_storage=True, managed=True, event_loop=None):
         if mode not in ["sync", "async"]:
             raise ValueError("Mode must be either 'sync' or 'async'")
         if mode == "async" and not ASYNCIO_AVAILABLE:
             raise ImportError("Asyncio module is required for async mode")
         if mode == "sync" and not MACHINE_AVAILABLE:
             raise ImportError("Machine module is required for sync mode")
+        # Auto-disable database features if MicroTetherDB is not available
+        if not BTREE_AVAILABLE:
+            if client_db or offline_storage:
+                if debug:
+                    print("⚠️ MicroTetherDB not available - disabling database features")
+                    print("   Install full package for database support")
+            client_db = False
+            offline_storage = False
         self.mode = mode
         self.managed = managed
+        self._user_event_loop = event_loop  # Store user-provided event loop
         self.config = read_config()
         if not self.config.get("tendrl_version"):
             self.config["tendrl_version"] = "0.1.0"
@@ -94,17 +104,78 @@ class Client:
         self._app_timer = None
         self._wdt = watchdog
         if mode == "async":
+            # Use user-provided event loop if available
+            if self._user_event_loop:
+                # Set the user's loop as the current event loop
+                asyncio.set_event_loop(self._user_event_loop)
+                if debug:
+                    print("✅ Using user-provided event loop for client")
             self._stop_event = asyncio.Event()
             self._tasks = []
         if BTREE_AVAILABLE and managed:
             try:
-                self._db = MicroTetherDB("/lib/tendrl/tether.db", btree_pagesize=db_page_size)
+                # Use user-provided event loop or get current one for async mode
+                database_event_loop = None
+                if mode == "async" and ASYNCIO_AVAILABLE:
+                    if self._user_event_loop:
+                        database_event_loop = self._user_event_loop
+                        if debug:
+                            print("✅ Using user-provided event loop for databases")
+                    else:
+                        try:
+                            database_event_loop = asyncio.get_running_loop()
+                            if debug:
+                                print("✅ Using current running event loop for databases")
+                        except RuntimeError:
+                            # No running loop, databases will handle this
+                            if debug:
+                                print("⚠️ No running event loop found, databases will create one")
+                # Main storage database (for offline message storage)
+                # Only create if offline_storage is enabled
+                if offline_storage:
+                    self._db = MicroTetherDB(
+                        filename="/lib/tendrl/tether.db",
+                        in_memory=False,
+                        btree_pagesize=db_page_size,
+                        event_loop=database_event_loop
+                    )
+                    if debug:
+                        print("✅ Offline storage database initialized")
+                else:
+                    self._db = None
+                    if debug:
+                        print("⚠️ Offline storage disabled - no message queuing")
+                # Client database (configurable storage mode)
+                # Only create if client_db is enabled
                 if client_db:
-                    self._client_db = MicroTetherDB("/lib/tendrl/client_db.db",btree_pagesize=1024)
+                    self._client_db = MicroTetherDB(
+                        filename="/lib/tendrl/client_db.db",
+                        in_memory=client_db_in_memory,
+                        btree_pagesize=1024,
+                        event_loop=database_event_loop
+                    )
+                    storage_type = "in-memory" if client_db_in_memory else "file-based"
+                    if debug:
+                        print(f"✅ Client database initialized ({storage_type})")
+                else:
+                    self._client_db = None
+                    if debug:
+                        print("⚠️ Client database disabled - no local data storage")
             except Exception as e:
-                print(f"Storage initialization error: {e}")
+                print(f"❌ Storage initialization error: {e}")
+                self._db = None
+                self._client_db = None
+        elif not managed:
+            if debug:
+                print("⚠️ Unmanaged mode - databases disabled")
+            self._db = None
+            self._client_db = None
         else:
-            print("btree module not available or unmanaged mode, database disabled")
+            if debug:
+                print("⚠️ MicroTetherDB not available - databases disabled")
+                print("   Use minimal installation or install full package")
+            self._db = None
+            self._client_db = None
 
     @property
     def storage(self):
@@ -197,17 +268,17 @@ class Client:
         if (self._last_cleanup - time.time()) >= 60:
             try:
                 async with self.storage as store:
-                    cleanup_result = store.ttl_cleanup()
-                    if self.debug and cleanup_result.get("deleted", 0) > 0:
+                    cleanup_result = store.cleanup()
+                    if self.debug and cleanup_result > 0:
                         print(
-                            f"Cleaned up {cleanup_result['deleted']} expired offline messages"
+                            f"Cleaned up {cleanup_result} expired offline messages"
                         )
                 if self.client_db:
                     async with self.client_db as store:
-                        cleanup_result = store.ttl_cleanup()
-                        if self.debug and cleanup_result.get("deleted", 0) > 0:
+                        cleanup_result = store.cleanup()
+                        if self.debug and cleanup_result > 0:
                             print(
-                                f"Cleaned up {cleanup_result['deleted']} expired offline messages"
+                                f"Cleaned up {cleanup_result} expired offline messages"
                             )
             except Exception as e:
                 if self.debug:
@@ -252,7 +323,7 @@ class Client:
                 if batch:
                     try:
                         response = self.websocket.send_batch(batch)
-                        if (not response or 
+                        if (not response or
                             (isinstance(response, dict) and response.get("code") == 401)):
                             self.client_enabled = False
                             if self.debug:
@@ -310,9 +381,9 @@ class Client:
             self._proc = False
 
     def _sync_cleanup_offline_messages(self):
-        result = safe_storage_operation(self.storage, "ttl_cleanup")
+        result = safe_storage_operation(self.storage, "cleanup")
         if self._client_db:
-            safe_storage_operation(self._client_db, "ttl_cleanup")
+            safe_storage_operation(self._client_db, "cleanup")
         return result
 
     # ===== ASYNC MODE IMPLEMENTATION =====
@@ -583,7 +654,17 @@ class Client:
             self._tasks = []
             init_baseline_alloc()
             try:
-                main_task = asyncio.create_task(self._async_callback())
+                # Check if we're in an async context or have a user-provided loop
+                if self._user_event_loop:
+                    # User provided their own loop, create task on it
+                    main_task = self._user_event_loop.create_task(self._async_callback())
+                    if self.debug:
+                        print("✅ Created client task on user-provided event loop")
+                else:
+                    # Try to create task on current loop
+                    main_task = asyncio.create_task(self._async_callback())
+                    if self.debug:
+                        print("✅ Created client task on current event loop")
                 self._tasks.append(main_task)
                 if watchdog and MACHINE_AVAILABLE:
                     try:
@@ -596,9 +677,13 @@ class Client:
             except (RuntimeError, AttributeError) as e:
                 if self.debug:
                     print(f"Async event loop error: {e}")
-                print(
-                    "To use async mode properly, call client.start() inside an async function"
-                )
+                if self._user_event_loop:
+                    print("Error: Unable to create task on user-provided event loop")
+                    print("Make sure the event loop is running when calling client.start()")
+                else:
+                    print("To use async mode properly:")
+                    print("1. Call client.start() inside an async function, OR")
+                    print("2. Provide an event_loop parameter: Client(mode='async', event_loop=your_loop)")
                 return
 
     async def async_stop(self):
@@ -784,7 +869,10 @@ class Client:
     # ===== CLIENT DATABASE =====
     def db_put(self, data, ttl=0, tags=None):
         if not self.client_db:
-            raise DBError(f"client_db config: {self.client_db}")
+            if not BTREE_AVAILABLE:
+                raise DBError("Client database not available - install full package with MicroTetherDB")
+            else:
+                raise DBError("Client database disabled - set client_db=True in constructor")
         try:
             with self.client_db as store:
                 return store.put(data, ttl=ttl, tags=tags)
@@ -795,7 +883,10 @@ class Client:
 
     def db_get(self, key):
         if not self.client_db:
-            raise DBError(f"client_db config: {self.client_db}")
+            if not BTREE_AVAILABLE:
+                raise DBError("Client database not available - install full package with MicroTetherDB")
+            else:
+                raise DBError("Client database disabled - set client_db=True in constructor")
         try:
             with self.client_db as store:
                 return store.get(key)
@@ -806,7 +897,10 @@ class Client:
 
     def db_query(self, query_dict=None):
         if not self.client_db:
-            raise DBError(f"client_db config: {self.client_db}")
+            if not BTREE_AVAILABLE:
+                raise DBError("Client database not available - install full package with MicroTetherDB")
+            else:
+                raise DBError("Client database disabled - set client_db=True in constructor")
         try:
             with self.client_db as store:
                 return store.query(query_dict or {})
@@ -817,7 +911,10 @@ class Client:
 
     def db_delete(self, key=None, purge=False):
         if not self.client_db:
-            raise DBError(f"client_db config: {self.client_db}")
+            if not BTREE_AVAILABLE:
+                raise DBError("Client database not available - install full package with MicroTetherDB")
+            else:
+                raise DBError("Client database disabled - set client_db=True in constructor")
         try:
             with self.client_db as store:
                 return store.delete(key, purge=purge)
@@ -829,7 +926,10 @@ class Client:
     # returns a generator of all messages in the database
     def db_list(self):
         if not self.client_db:
-            raise DBError(f"client_db config: {self.client_db}")
+            if not BTREE_AVAILABLE:
+                raise DBError("Client database not available - install full package with MicroTetherDB")
+            else:
+                raise DBError("Client database disabled - set client_db=True in constructor")
         try:
             with self.client_db as store:
                 return store.all()
@@ -840,10 +940,13 @@ class Client:
 
     def db_cleanup(self):
         if not self.client_db:
-            raise DBError(f"client_db config: {self.client_db}")
+            if not BTREE_AVAILABLE:
+                raise DBError("Client database not available - install full package with MicroTetherDB")
+            else:
+                raise DBError("Client database disabled - set client_db=True in constructor")
         try:
             with self.client_db as store:
-                result = store.ttl_cleanup()
+                result = store.cleanup()
                 return result
         except Exception as e:
             if self.debug:

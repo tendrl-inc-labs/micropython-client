@@ -1,7 +1,4 @@
-from .MicroTetherDB import MicroTetherDB, DBLock
+from .db import MicroTetherDB
 
-__version__ = "0.1.0"
-__all__ = [
-    'MicroTetherDB',
-    'DBLock'
-] 
+
+__all__ = ['MicroTetherDB'] 
