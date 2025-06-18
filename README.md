@@ -106,8 +106,6 @@ The script will automatically:
 2. Copy the `tendrl/` directory to your device's `/lib` directory
 3. Create or update the `config.json` file in your device's root directory
 
-
-
 ### Client Configuration by Installation Type
 
 The client automatically detects available features and configures itself appropriately:
@@ -218,6 +216,8 @@ The SDK provides several initialization options:
 | `managed` | `bool` | `True` | Enable managed mode (WiFi, queuing, offline storage) |
 | `event_loop` | `asyncio.AbstractEventLoop` | `None` | Event loop for async mode (integrates with user applications) |
 
+> **Mode and Event Loop**: Given MicroPython only has a single event loop, having the sync mode allows using one of the hardware timers to circumvent this limitation for necesarry non-blocking, background processing. This is the default mode for ease of use.
+
 ## Operation Modes
 
 The SDK supports two distinct operation modes to suit different use cases:
@@ -239,6 +239,8 @@ Best for:
 - Applications requiring offline operation
 - Systems that need automatic WiFi management
 - Long-running applications
+
+
 
 ```python
 from tendrl import Client
