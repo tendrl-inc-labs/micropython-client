@@ -25,23 +25,23 @@ Before installing the Tendrl SDK, you need to have MicroPython installed on your
 
 The Tendrl SDK offers two installation options to suit different device constraints and use cases:
 
-### Installation Types Overview
+### Feature Comparison
 
 | Feature | Full Installation | Minimal Installation |
 |---------|------------------|---------------------|
 | **Client & Networking** | ✅ | ✅ |
 | **Message Publishing** | ✅ | ✅ |
 | **WebSocket Communication** | ✅ | ✅ |
-| **Client Database (MicroTetherDB)** | ✅ | ❌ |
+| **Client Database** | ✅ | ❌ |
 | **Offline Storage** | ✅ | ❌ |
 | **TTL Management** | ✅ | ❌ |
 | **Rich Queries** | ✅ | ❌ |
-| **Flash Storage Required** | ~150KB | ~100KB |
-| **Use Case** | Full-featured IoT applications | Resource-constrained devices |
+| **Flash Storage** | ~150KB | ~100KB |
 
-### Choosing Your Installation
+ &nbsp;
 
 **Choose Full Installation if you need:**
+
 - Local data storage and caching
 - Offline message queuing
 - Rich database queries
@@ -49,6 +49,7 @@ The Tendrl SDK offers two installation options to suit different device constrai
 - Maximum feature set
 
 **Choose Minimal Installation if you need:**
+
 - Direct message sending only
 - Minimal flash storage usage
 - Simple networking without persistence
@@ -159,19 +160,6 @@ client.publish(
     write_offline=False  # Must be False - no offline storage
 )
 ```
-
-### Feature Comparison
-
-| Feature | Full Installation | Minimal Installation |
-|---------|------------------|---------------------|
-| **Client & Networking** | ✅ | ✅ |
-| **Message Publishing** | ✅ | ✅ |
-| **WebSocket Communication** | ✅ | ✅ |
-| **Client Database** | ✅ | ❌ |
-| **Offline Storage** | ✅ | ❌ |
-| **TTL Management** | ✅ | ❌ |
-| **Rich Queries** | ✅ | ❌ |
-| **Flash Storage** | ~150KB | ~100KB |
 
 ## Configuration
 
