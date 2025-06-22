@@ -1,6 +1,9 @@
 # MicroTetherDB
 
-A lightweight, feature-rich key-value (BTree) database for MicroPython devices with support for in-memory storage (RAM / volatile) and file-based storage (flash / persistent) with async operations and efficient TTL management.
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/tendrl-inc/clients/nano_agent)
+![MicroPython](https://img.shields.io/badge/MicroPython-1.15%2B-blue) ![License](https://img.shields.io/badge/License-Proprietary-red)
+
+A lightweight, feature-rich key-value (BTree) database for MicroPython devices with support for in-memory storage (RAM / volatile) and file-based storage (flash / persistent) with async operations and efficient TTL(time to live) management.
 
 ## Installation
 
@@ -31,18 +34,18 @@ db = MicroTetherDB(
 )
 
 # Store data with optional TTL (time-to-live in seconds)
-# Method 1: put(data, ttl=None, tags=None, _id=None)
+# Method 1: put(data, ttl=None, tags=None, key=None) - auto-generates key
 db.put(
     {"name": "John", "age": 30},
     ttl=3600,  # expires in 1 hour
     tags=["user", "active"]
 )
 
-# Method 2: put(key, data, ttl=None, tags=None)
+# Method 2: put(key, data, ttl=None, tags=None) - uses specified key
+# no ttl means perpetual persistence unless deleted or purged
 db.put(
     "user1",
     {"name": "John", "age": 30},
-    ttl=3600,  # expires in 1 hour
     tags=["user", "active"]
 )
 
@@ -81,7 +84,7 @@ db.put("temp_file", {"path": "/tmp/file"}, ttl=10)       # 10 seconds
 - **Frequent Checks**: Expired items removed every 10 seconds by default
 - **No Full Scans**: Only checks items that might be expired
 - **Automatic Cleanup**: No manual intervention required
-- **Performance**: O(log n) insertion, O(1) expiry checking for expired items
+- **Performance**: Scales with expired items, not total database size
 
 ### Query Examples
 
@@ -164,7 +167,7 @@ db = MicroTetherDB(
     adaptive_threshold=True       # automatically adjust flush threshold
 )
 
-# Store data with tags (using key-first method)
+# Store data with tags (using specified key)
 db.put(
     "user1",
     {"name": "John", "age": 30},
@@ -303,7 +306,7 @@ MicroTetherDB fills a critical gap in the MicroPython database ecosystem by comb
 | Feature | MicroTetherDB | btree | SQLite Ports | Simple KV |
 |---------|---------------|-------|---------------|-----------|
 | **Memory Efficient** | ✅ Configurable | ✅ | ❌ Heavy | ✅ |
-| **Automatic TTL** | ✅ **Unique** | ❌ | ❌ | ❌ |
+| **Automatic TTL (time to live)** | ✅ **Unique** | ❌ | ❌ | ❌ |
 | **Rich Queries** | ✅ **Unique** | ❌ | ✅ | ❌ |
 | **Dual Storage** | ✅ **Unique** | ❌ | ❌ | ❌ |
 | **Production Ready** | ✅ | ❌ | ⚠️ | ❌ |
@@ -426,8 +429,8 @@ When using MicroTetherDB in async applications:
 
 ### TTL System Performance
 
-- **Index Maintenance**: O(log n) for adding TTL items
-- **Expiry Checking**: O(k) where k = number of expired items (not total items)
+- **Efficient Indexing**: Only items with TTL are tracked for expiry
+- **Smart Cleanup**: Only processes items that are actually expired
 - **Memory Overhead**: ~24 bytes per TTL item for index entry
 - **Background Processing**: Non-blocking, runs between operations
 - **Cleanup Frequency**: Configurable from 1 second to hours
@@ -532,7 +535,7 @@ db = MicroTetherDB(
 )
 
 try:
-    # Store user data with TTL and tags (using key-first method)
+    # Store user data with TTL and tags (using specified key)
     db.put(
         "user1",
         {"name": "John", "age": 30},

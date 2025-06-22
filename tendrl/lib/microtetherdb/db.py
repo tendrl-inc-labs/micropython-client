@@ -204,16 +204,16 @@ class MicroTetherDB:
         except Exception as e:
             raise DBLock(f"Failed to acquire lock: {str(e)}")
 
-    async def _put(self, data, ttl=None, tags=None, _id=None):
+    async def _put(self, data, ttl=None, tags=None, key=None):
         try:
             await self._acquire_lock()
             try:
-                if _id is None:
+                if key is None:
                     key = KeyGenerator.generate_key(ttl)
                     while key in self._db:
                         key = KeyGenerator.generate_key(ttl)
                 else:
-                    key = str(_id)
+                    key = str(key)
                 key_bytes = key.encode()
                 if tags:
                     data["_tags"] = tags
@@ -398,7 +398,7 @@ class MicroTetherDB:
         self._ensure_async_components()
         if len(args) == 2:
             key, data = args
-            kwargs['_id'] = key
+            kwargs['key'] = key
             data_arg = data
         else:
             data_arg = args[0] if args else {}

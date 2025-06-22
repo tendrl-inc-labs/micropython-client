@@ -1,5 +1,8 @@
 # Tendrl MicroPython SDK
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/tendrl-inc/clients/nano_agent)
+![MicroPython](https://img.shields.io/badge/MicroPython-1.15%2B-blue) ![License](https://img.shields.io/badge/License-Proprietary-red)
+
 A resource-optimized SDK for IoT and embedded devices, featuring a minimal memory footprint and hardware-specific optimizations.
 
 ## Key Features
@@ -25,23 +28,23 @@ Before installing the Tendrl SDK, you need to have MicroPython installed on your
 
 The Tendrl SDK offers two installation options to suit different device constraints and use cases:
 
-### Installation Types Overview
+### Feature Comparison
 
 | Feature | Full Installation | Minimal Installation |
 |---------|------------------|---------------------|
 | **Client & Networking** | ✅ | ✅ |
 | **Message Publishing** | ✅ | ✅ |
 | **WebSocket Communication** | ✅ | ✅ |
-| **Client Database (MicroTetherDB)** | ✅ | ❌ |
+| **Client Database** | ✅ | ❌ |
 | **Offline Storage** | ✅ | ❌ |
 | **TTL Management** | ✅ | ❌ |
 | **Rich Queries** | ✅ | ❌ |
-| **Flash Storage Required** | ~150KB | ~100KB |
-| **Use Case** | Full-featured IoT applications | Resource-constrained devices |
+| **Flash Storage** | ~150KB | ~100KB |
 
-### Choosing Your Installation
+ &nbsp;
 
 **Choose Full Installation if you need:**
+
 - Local data storage and caching
 - Offline message queuing
 - Rich database queries
@@ -49,6 +52,7 @@ The Tendrl SDK offers two installation options to suit different device constrai
 - Maximum feature set
 
 **Choose Minimal Installation if you need:**
+
 - Direct message sending only
 - Minimal flash storage usage
 - Simple networking without persistence
@@ -105,8 +109,6 @@ The script will automatically:
 2. Copy the `tendrl/` directory to your device's `/lib` directory
 3. Create or update the `config.json` file in your device's root directory
 
-
-
 ### Client Configuration by Installation Type
 
 The client automatically detects available features and configures itself appropriately:
@@ -159,19 +161,6 @@ client.publish(
     write_offline=False  # Must be False - no offline storage
 )
 ```
-
-### Feature Comparison
-
-| Feature | Full Installation | Minimal Installation |
-|---------|------------------|---------------------|
-| **Client & Networking** | ✅ | ✅ |
-| **Message Publishing** | ✅ | ✅ |
-| **WebSocket Communication** | ✅ | ✅ |
-| **Client Database** | ✅ | ❌ |
-| **Offline Storage** | ✅ | ❌ |
-| **TTL Management** | ✅ | ❌ |
-| **Rich Queries** | ✅ | ❌ |
-| **Flash Storage** | ~150KB | ~100KB |
 
 ## Configuration
 
@@ -230,6 +219,8 @@ The SDK provides several initialization options:
 | `managed` | `bool` | `True` | Enable managed mode (WiFi, queuing, offline storage) |
 | `event_loop` | `asyncio.AbstractEventLoop` | `None` | Event loop for async mode (integrates with user applications) |
 
+> **Mode and Event Loop**: Given MicroPython only has a single event loop, having the sync mode allows using one of the hardware timers to circumvent this limitation for necesarry non-blocking, background processing. This is the default mode for ease of use.
+
 ## Operation Modes
 
 The SDK supports two distinct operation modes to suit different use cases:
@@ -251,6 +242,8 @@ Best for:
 - Applications requiring offline operation
 - Systems that need automatic WiFi management
 - Long-running applications
+
+
 
 ```python
 from tendrl import Client
