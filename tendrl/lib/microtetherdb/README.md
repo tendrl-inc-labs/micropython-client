@@ -1,5 +1,8 @@
 # MicroTetherDB
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/tendrl-inc/clients/nano_agent)
+![MicroPython](https://img.shields.io/badge/MicroPython-1.15%2B-blue) ![License](https://img.shields.io/badge/License-Proprietary-red)
+
 A lightweight, feature-rich key-value (BTree) database for MicroPython devices with support for in-memory storage (RAM / volatile) and file-based storage (flash / persistent) with async operations and efficient TTL(time to live) management.
 
 ## Installation

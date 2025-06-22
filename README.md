@@ -1,5 +1,8 @@
 # Tendrl MicroPython SDK
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/tendrl-inc/clients/nano_agent)
+![MicroPython](https://img.shields.io/badge/MicroPython-1.15%2B-blue) ![License](https://img.shields.io/badge/License-Proprietary-red)
+
 A resource-optimized SDK for IoT and embedded devices, featuring a minimal memory footprint and hardware-specific optimizations.
 
 ## Key Features
