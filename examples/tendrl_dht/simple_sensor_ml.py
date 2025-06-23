@@ -149,8 +149,8 @@ class SimpleDHTML:
 
         # Display in user's preferred unit
         display_temp = [self._convert_temp_display(t) for t in self.temp_range]
-        unit_symbol = '°F' if self.temp_unit == 'F' else '°C'
-        print(f"Thresholds set: Temp {display_temp}{unit_symbol}, Humidity {self.humidity_range}%")
+        unit_symbol = 'F' if self.temp_unit == 'F' else 'C'
+        print(f"Thresholds set: Temp {display_temp}°{unit_symbol}, Humidity {self.humidity_range}%")
 
     def set_alert_cooldown(self, minutes):
         """
@@ -240,15 +240,15 @@ class SimpleDHTML:
         display_temp = self._convert_temp_display(temp)
         display_min = self._convert_temp_display(self.temp_range[0])
         display_max = self._convert_temp_display(self.temp_range[1])
-        unit_symbol = '°F' if self.temp_unit == 'F' else '°C'
+        unit_symbol = 'F' if self.temp_unit == 'F' else 'C'
 
         if temp < self.temp_range[0]:
             anomalies.append(
-                f"Temperature too low: {display_temp:.1f}{unit_symbol} (min: {display_min:.1f}{unit_symbol})"
+                f"Temperature too low: {display_temp:.1f}°{unit_symbol} (min: {display_min:.1f}°{unit_symbol})"
             )
         elif temp > self.temp_range[1]:
             anomalies.append(
-                f"Temperature too high: {display_temp:.1f}{unit_symbol} (max: {display_max:.1f}{unit_symbol})"
+                f"Temperature too high: {display_temp:.1f}°{unit_symbol} (max: {display_max:.1f}°{unit_symbol})"
             )
 
         if humidity < self.humidity_range[0]:
@@ -289,12 +289,12 @@ class SimpleDHTML:
 
         # Convert threshold for Fahrenheit (5°C = 9°F)
         temp_threshold = 9 if self.temp_unit == 'F' else 5
-        unit_symbol = '°F' if self.temp_unit == 'F' else '°C'
+        unit_symbol = 'F' if self.temp_unit == 'F' else 'C'
 
         if temp_change > temp_threshold:
             display_change = self._convert_temp_display(temp_change) if self.temp_unit == 'F' else temp_change
             anomalies.append(
-                f"Sudden temperature change: {display_change:.1f}{unit_symbol} from recent average"
+                f"Sudden temperature change: {display_change:.1f}°{unit_symbol} from recent average"
             )
 
         if humidity_change > 20:
@@ -343,7 +343,7 @@ class SimpleDHTML:
         # Convert temperatures to user's preferred unit for display
         display_temps = [self._convert_temp_display(t) for t in temps] if temps else []
         display_thresholds = [self._convert_temp_display(t) for t in self.temp_range]
-        unit_symbol = '°F' if self.temp_unit == 'F' else '°C'
+        unit_symbol = 'F' if self.temp_unit == 'F' else 'C'
 
         return {
             "total_readings": self.reading_count,
