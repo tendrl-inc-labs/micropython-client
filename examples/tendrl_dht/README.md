@@ -198,12 +198,12 @@ sensor = SimpleDHTML(
 
 | Feature | Traditional Files | Simple Arrays | MicroTetherDB |
 |---------|------------------|---------------|---------------|
-| **Query Speed** | Slow (full file read) | Fast (limited size) | **25-167x faster** |
+| **Query Speed** | Slow (full file read) | Fast (limited size) | **Indexed lookups** |
 | **Memory Management** | Manual | Manual | **Automatic TTL** |
-| **Complex Queries** | Impossible | Impossible | **MongoDB syntax** |
-| **Time-series** | Very difficult | Limited | **Built-in support** |
+| **Complex Queries** | Manual parsing | Linear search | **MongoDB-style syntax** |
+| **Time-series** | Very difficult | Limited | **Built-in time queries** |
 | **Data Persistence** | Yes | No | **Configurable** |
-| **ML Capability** | Basic | Very limited | **Advanced patterns** |
+| **Analysis Capability** | Basic logging | Very limited | **Statistical patterns** |
 
 ## 🔧 Hardware Requirements & Scaling
 
@@ -255,39 +255,51 @@ advanced_db = MicroTetherDB(
 | **FeatherS3** | **16MB** | **8MB PSRAM** | **Months-Years** | **Seasonal-Annual** |
 
 
-### ⚠️ **Realistic Storage Limits & Performance:**
+### ⚠️ **Realistic Capabilities & Constraints:**
 
-While the hardware *can* store massive amounts of data, **btree performance degrades** as datasets grow large:
+**What This Actually Enables:**
+- **Simple pattern detection**: Threshold-based anomaly detection
+- **Basic trend analysis**: Compare current vs historical averages
+- **Time-based queries**: Find data by hour/day patterns
+- **Persistent storage**: Data survives restarts (major improvement for microcontrollers)
 
-**Practical Limits:**
+**What This Is NOT:**
+- **Not "AI" or "Deep Learning"**: These are statistical analysis patterns
+- **Not Enterprise ML**: Limited by microcontroller processing power
+- **Not Real-time**: Constrained by single-threaded execution
+- **Not Unlimited Scale**: Storage and query performance have limits
+
+**Realistic Storage Performance:**
 ```python
-# GOOD: Fast performance, btree efficient
-short_term = LongTermLearning(pin=4, learning_days=30)    # ~50MB, <1000 queries/sec
-medium_term = LongTermLearning(pin=4, learning_days=90)   # ~150MB, ~500 queries/sec
+# PRACTICAL: Good performance for microcontroller applications
+short_term = LongTermLearning(pin=4, learning_days=7)     # ~10MB, responsive
+medium_term = LongTermLearning(pin=4, learning_days=30)   # ~50MB, slower queries
 
-# CAUTION: Slower performance as btree grows
-long_term = LongTermLearning(pin=4, learning_days=180)    # ~300MB, ~200 queries/sec
+# CHALLENGING: Possible but with performance trade-offs
+long_term = LongTermLearning(pin=4, learning_days=90)     # ~150MB, slow queries
 
-# AVOID: Very slow, btree becomes inefficient
-massive_term = LongTermLearning(pin=4, learning_days=365) # ~600MB, <50 queries/sec
+# AVOID: Likely too slow for practical use
+massive_term = LongTermLearning(pin=4, learning_days=365) # ~600MB, very slow
 ```
 
-**Smart Strategies for Long-Term Data:**
-1. **Data Rotation**: Keep detailed recent data, summarized historical data
-2. **Tiered Storage**: Hot data in memory, warm data in btree, cold data in cloud
-3. **Periodic Cleanup**: Auto-delete old detailed records, keep summaries
+**The Real Value - Database Capabilities on Microcontrollers:**
+1. **Structured Storage**: JSON-like documents instead of manual parsing
+2. **Query Language**: MongoDB-style queries instead of linear search
+3. **Automatic Indexing**: Fast lookups instead of scanning all data
+4. **TTL Management**: Automatic cleanup instead of manual memory management
+5. **Persistence**: Data survives restarts instead of RAM-only storage
 
-**Recommended Production Approach:**
+**Production Recommendations:**
 ```python
-# Keep 30 days detailed + 1 year of hourly summaries
-smart_storage = LongTermLearning(
+# Realistic approach for microcontroller constraints
+practical_storage = LongTermLearning(
     pin=4, 
-    learning_days=30,          # Detailed data
-    summary_retention_days=365 # Hourly/daily summaries only
+    learning_days=14,          # 2 weeks detailed data
+    summary_retention_days=90  # 3 months of hourly summaries
 )
 ```
 
-**Bottom Line**: The hardware enables the *possibility* of massive storage, but **smart data management** is key for maintaining performance at scale.
+**Bottom Line**: This brings **database-like capabilities** to microcontrollers, enabling **basic statistical analysis** that was previously impractical due to storage and query limitations.
 
 ## 🌐 Cloud Features (Optional)
 
@@ -335,9 +347,9 @@ learner = StatisticalLearning(pin=4, window_size=10)  # Smaller window
 2. Set up cloud integration with Tendrl
 3. Combine patterns for custom applications
 
-## 🤝 Revolutionary Breakthrough
+## 🤝 Database Capabilities for MicroPython
 
-These examples demonstrate **machine learning patterns that were IMPOSSIBLE before MicroTetherDB + Tendrl**. Each pattern showcases breakthrough capabilities:
+These examples demonstrate **structured data analysis patterns** that were **impractical before** due to storage and query limitations on microcontrollers:
 
 ### 📱 **Target: Constrained Microcontrollers (NOT Full OS Devices)**
 
@@ -420,7 +432,7 @@ last_week_2pm = db.query({
 - **Time-series analysis**: Efficient date/time range queries
 - **Dynamic sizing**: Grows/shrinks based on available storage
 
-**The combination of MicroTetherDB's persistent storage + efficient queries + Tendrl's cloud sync creates entirely new possibilities for IoT machine learning!**
+**The combination of MicroTetherDB's structured storage + query capabilities + Tendrl's cloud sync makes database-driven IoT applications practical on constrained microcontrollers for the first time.**
 
 ## 📄 License
 

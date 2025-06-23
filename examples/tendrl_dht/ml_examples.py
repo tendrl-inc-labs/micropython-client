@@ -1,25 +1,27 @@
 """
-Simple ML Learning Patterns with MicroTetherDB + Tendrl
-======================================================
+Statistical Analysis Patterns with MicroTetherDB + Tendrl
+========================================================
 
-This demonstrates 3 core learning patterns that MicroTetherDB + Tendrl make possible
-on microcontrollers, but would be IMPOSSIBLE with traditional storage approaches.
+This demonstrates 3 data analysis patterns that MicroTetherDB + Tendrl make practical
+on microcontrollers, but would be impractical with traditional storage approaches.
 
 🚫 WITHOUT MicroTetherDB + Tendrl:
 - Simple arrays (limited size, lose data on restart)
-- Files (slow, no queries, manual cleanup)
-- Basic key-value storage (no time-series, no cloud sync)
-- No long-term learning (weeks/months of data)
-- No cloud intelligence or remote monitoring
+- Files (slow, no structured queries, manual cleanup)
+- Basic key-value storage (no time-series queries, no cloud sync)
+- Limited historical analysis (can't efficiently access weeks of data)
+- No cloud data synchronization
 
 ✅ WITH MicroTetherDB + Tendrl:
-- Efficient time-series queries over WEEKS of data
+- Structured time-series queries over weeks of data
 - Automatic memory management with TTL
-- MongoDB-style query syntax
-- 25-167x faster batch operations than files
-- Cloud sync with offline storage
-- Remote monitoring and bidirectional control
-- Long-term learning patterns impossible before
+- MongoDB-style query syntax for complex data access
+- Persistent storage that survives restarts
+- Cloud sync with offline storage capability
+- Remote monitoring and data synchronization
+
+Note: These are statistical analysis patterns, not AI/ML in the enterprise sense.
+They enable basic trend detection and anomaly identification within microcontroller constraints.
 """
 
 import time
@@ -54,10 +56,10 @@ except ImportError:
 
 class LongTermLearning:
     """
-    Learn 'normal' patterns from WEEKS of data - impossible with traditional storage!
+    Analyze statistical patterns from weeks of persistent data.
     
-    Traditional approach: Limited to ~100 readings in RAM
-    MicroTetherDB approach: Weeks of data with efficient queries
+    Traditional approach: Limited to ~100 readings in RAM, lost on restart
+    MicroTetherDB approach: Weeks of data with structured queries and persistence
     """
     
     def __init__(self, pin=4, learning_days=30):
@@ -133,13 +135,13 @@ class LongTermLearning:
             self._send_learning_update(temp, humidity, now)
         
     def _learn_long_term_patterns(self, current_temp, current_humidity, current_time):
-        """Learn from weeks of data - impossible without MicroTetherDB!"""
+        """Analyze patterns from weeks of data using structured queries"""
         
         current_hour = int((current_time % 86400) / 3600)
         current_day = int((current_time / 86400) % 7)
         
         # PATTERN 1: Same time of day over weeks
-        # Traditional storage: Impossible - would need manual file parsing
+        # Traditional storage: Impractical - would need manual file parsing
         same_time_data = self.db.query({
             'hour_of_day': current_hour,
             'timestamp': {'$gte': current_time - (7 * 24 * 3600)}  # Last week
@@ -155,7 +157,7 @@ class LongTermLearning:
                       f"at hour {current_hour} (deviation: {deviation:.1f}°C)")
                 
         # PATTERN 2: Day of week patterns
-        # Traditional storage: Completely impossible
+        # Traditional storage: Very difficult to implement efficiently
         same_day_data = self.db.query({
             'day_of_week': current_day,
             'timestamp': {'$gte': current_time - (30 * 24 * 3600)}  # Last month
@@ -169,7 +171,7 @@ class LongTermLearning:
             print(f"🗓️ {day_names[current_day]} learning: Current {current_temp}°C, "
                   f"historical avg {day_avg:.1f}°C (from {len(same_day_data)} readings)")
         
-        # PATTERN 3: Seasonal trends (impossible without long-term storage)
+        # PATTERN 3: Seasonal trends (requires persistent long-term storage)
         if self.reading_count >= 100:
             trend_data = self.db.query({
                 'timestamp': {'$gte': current_time - (self.learning_days * 24 * 3600)},
