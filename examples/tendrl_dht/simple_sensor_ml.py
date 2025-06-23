@@ -39,7 +39,7 @@ class SimpleDHTML:
     """
 
     def __init__(self, pin, sensor_type='DHT22', alert_callback=None,
-                 temp_unit='C', data_window_hours=1):
+                 temp_unit='C', data_window_hours=1, alert_cooldown_minutes=5):
         """
         Initialize the sensor
         
@@ -49,11 +49,13 @@ class SimpleDHTML:
             alert_callback: Function called on anomalies (temp, humidity, reason)
             temp_unit: Temperature unit - 'C' for Celsius, 'F' for Fahrenheit
             data_window_hours: How many hours of data to keep (1, 24, 168=7days, 720=30days)
+            alert_cooldown_minutes: Minutes to wait between similar alerts (default: 5)
         """
         self.sensor_type = sensor_type.upper()
         self.alert_callback = alert_callback or self._default_alert
         self.temp_unit = temp_unit.upper()
         self.data_window_hours = data_window_hours
+        self.alert_cooldown_minutes = alert_cooldown_minutes
 
         # Initialize sensor
         try:
@@ -77,7 +79,7 @@ class SimpleDHTML:
         self.timer = None
         self.reading_count = 0
         self.last_alert_time = 0
-        self.alert_cooldown = 300  # 5 minutes between similar alerts
+        self.alert_cooldown = alert_cooldown_minutes * 60  # Convert minutes to seconds
 
     def _configure_database(self):
         """Configure database based on data window requirements"""
@@ -149,6 +151,17 @@ class SimpleDHTML:
         display_temp = [self._convert_temp_display(t) for t in self.temp_range]
         unit_symbol = '°F' if self.temp_unit == 'F' else '°C'
         print(f"Thresholds set: Temp {display_temp}{unit_symbol}, Humidity {self.humidity_range}%")
+
+    def set_alert_cooldown(self, minutes):
+        """
+        Set the cooldown period between similar alerts
+        
+        Args:
+            minutes: Minutes to wait between similar alerts (0 = no cooldown)
+        """
+        self.alert_cooldown_minutes = minutes
+        self.alert_cooldown = minutes * 60
+        print(f"Alert cooldown set to {minutes} minutes")
 
     def start(self, interval_seconds=30):
         """
@@ -352,38 +365,42 @@ class SimpleDHTML:
                 "temperature": [round(t, 1) for t in display_thresholds],
                 "humidity": self.humidity_range,
                 "temp_unit": unit_symbol
+            },
+            "alert_settings": {
+                "cooldown_minutes": self.alert_cooldown_minutes,
+                "last_alert_time": self.last_alert_time,
+                "seconds_since_last_alert": int(time.time() - self.last_alert_time) if self.last_alert_time > 0 else None
             }
         }
 
 
 # Convenience functions for even simpler usage
-def create_indoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24):
+def create_indoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=5):
     """Create sensor configured for indoor monitoring (20-26°C/68-79°F, 40-60% humidity)"""
-    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours)
+    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes)
     if temp_unit.upper() == 'F':
         sensor.set_thresholds(temp_range=[68, 79], humidity_range=[40, 60])  # Fahrenheit
     else:
         sensor.set_thresholds(temp_range=[20, 26], humidity_range=[40, 60])  # Celsius
     return sensor
 
-def create_outdoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24):
+def create_outdoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=10):
     """Create sensor configured for outdoor monitoring (0-40°C/32-104°F, 10-90% humidity)"""
-    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours)
+    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes)
     if temp_unit.upper() == 'F':
         sensor.set_thresholds(temp_range=[32, 104], humidity_range=[10, 90])  # Fahrenheit
     else:
         sensor.set_thresholds(temp_range=[0, 40], humidity_range=[10, 90])  # Celsius
     return sensor
 
-def create_greenhouse_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=168):
+def create_greenhouse_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=168, alert_cooldown_minutes=15):
     """Create sensor configured for greenhouse monitoring (18-30°C/64-86°F, 50-80% humidity)"""
-    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours)
+    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes)
     if temp_unit.upper() == 'F':
         sensor.set_thresholds(temp_range=[64, 86], humidity_range=[50, 80])  # Fahrenheit
     else:
         sensor.set_thresholds(temp_range=[18, 30], humidity_range=[50, 80])  # Celsius
     return sensor
-
 
 # Demo usage
 def main():
@@ -397,7 +414,7 @@ def main():
 
     # Method 1: Manual setup with Fahrenheit and 24-hour window
     sensor = SimpleDHTML(pin=4, sensor_type='DHT22', alert_callback=my_alert,
-                        temp_unit='F', data_window_hours=24)
+                        temp_unit='F', data_window_hours=24, alert_cooldown_minutes=3)
     sensor.set_thresholds(temp_range=[68, 77], humidity_range=[40, 60])  # Fahrenheit
 
     # Method 2: Pre-configured for common scenarios
@@ -411,10 +428,15 @@ def main():
     print(f"  Temperature range: {[round(sensor._convert_temp_display(t), 1) for t in sensor.temp_range]}°{sensor.temp_unit}")
     print(f"  Humidity range: {sensor.humidity_range}%")
     print(f"  Reading interval: {sensor.reading_interval/1000}s")
+    print(f"  Alert cooldown: {sensor.alert_cooldown_minutes} minutes")
 
     print("\nTo start monitoring:")
     print("  sensor.start()  # Takes readings every 30 seconds")
     print("  # Anomalies will trigger your alert_callback function")
+
+    print("\nTo adjust alert cooldown:")
+    print("  sensor.set_alert_cooldown(10)  # 10 minutes between alerts")
+    print("  sensor.set_alert_cooldown(0)   # No cooldown (immediate alerts)")
 
     print("\nTo check status anytime:")
     print("  status = sensor.get_status()")

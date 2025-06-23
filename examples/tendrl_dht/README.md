@@ -12,9 +12,9 @@ def my_alert(temp, humidity, reason):
     # Send notification, log to file, etc.
 
 # Setup sensor with your alert function
-# Supports both Celsius and Fahrenheit, configurable data windows
+# Supports both Celsius and Fahrenheit, configurable data windows and alert cooldowns
 sensor = SimpleDHTML(pin=4, sensor_type='DHT22', alert_callback=my_alert, 
-                    temp_unit='F', data_window_hours=24)
+                    temp_unit='F', data_window_hours=24, alert_cooldown_minutes=3)
 
 # Set acceptable ranges (in your chosen temperature unit)
 sensor.set_thresholds(temp_range=[68, 77], humidity_range=[40, 60])  # Fahrenheit
@@ -36,16 +36,10 @@ from examples.tendrl_dht import create_indoor_sensor, create_greenhouse_sensor
 def my_alert(temp, humidity, reason):
     print(f"ALERT: {reason}")
 
-# Indoor monitoring with Fahrenheit and 24-hour data window
+# Indoor monitoring with Fahrenheit, 24-hour data window, and 5-minute alert cooldown
 indoor = create_indoor_sensor(pin=4, alert_callback=my_alert, 
-                             temp_unit='F', data_window_hours=24)
+                             temp_unit='F', data_window_hours=24, alert_cooldown_minutes=5)
 indoor.start()  # Default 30-second readings
-
-# Greenhouse monitoring with Celsius and 7-day data window  
-greenhouse = create_greenhouse_sensor(pin=5, alert_callback=my_alert, 
-                                    temp_unit='C', data_window_hours=168)
-greenhouse.start(interval_seconds=300)  # Read every 5 minutes for battery saving
-```
 
 ## 📊 Available Metrics & Data Analysis
 
@@ -161,7 +155,7 @@ humid_conditions = sensor.db.query({
 - **Configurable reading intervals** - 10 seconds to hours (default: 30 seconds)
 - **Threshold alerts** when values go outside your ranges
 - **Smart detection** of sudden changes (>5°C or >20% humidity)
-- **Alert cooldown** prevents spam (5 minutes between similar alerts)
+- **Configurable alert cooldown** prevents spam (0-30+ minutes, default: 5 minutes)
 - **Minimal memory** usage (~10KB RAM for basic, scalable to MB for analysis)
 - **Both sensors** supported (DHT11 and DHT22)
 - **Rich querying** with MongoDB-style syntax
@@ -188,6 +182,7 @@ humid_conditions = sensor.db.query({
 | `alert_callback` | function | `None` | User function | Called on anomalies: `callback(temp, humidity, reason)` |
 | `temp_unit` | str | `'C'` | `'C'`, `'F'` | Temperature unit (Celsius or Fahrenheit) |
 | `data_window_hours` | int | `1` | `1, 24, 168, 720, ...` | Hours of data to keep (affects storage type) |
+| `alert_cooldown_minutes` | int | `5` | `0, 1, 5, 10, 30, ...` | Minutes between similar alerts (0 = no cooldown) |
 
 ### **Method Configuration Options**
 
@@ -195,6 +190,7 @@ humid_conditions = sensor.db.query({
 |------------|---------------|-------------|-------------|-----------------|
 | `set_thresholds()` | `temp_range` | `[15, 35]` (°C) | `[min, max]` | Acceptable temperature range in your chosen unit |
 | | `humidity_range` | `[20, 80]` | `[min, max]` | Acceptable humidity range (0-100%) |
+| `set_alert_cooldown()` | `minutes` | `5` | `0, 1, 5, 10, 30, ...` | Minutes between similar alerts (0 = immediate alerts) |
 | `start()` | `interval_seconds` | `30` | `10, 30, 60, 300, 3600, ...` | How often to take readings |
 
 ### **Automatic Configurations by Data Window**
@@ -208,11 +204,9 @@ humid_conditions = sensor.db.query({
 
 ### **Pre-configured Sensor Defaults**
 
-| **Function** | **Temp Range (°C)** | **Temp Range (°F)** | **Humidity** | **Window** |
-|--------------|-------------------|-------------------|--------------|------------|
-| `create_indoor_sensor()` | 20-26°C | 68-79°F | 40-60% | 24 hours |
-| `create_outdoor_sensor()` | 0-40°C | 32-104°F | 10-90% | 24 hours |
-| `create_greenhouse_sensor()` | 18-30°C | 64-86°F | 50-80% | 7 days |
+| **Function** | **Temp Range (°C)** | **Temp Range (°F)** | **Humidity** | **Window** | **Alert Cooldown** |
+|--------------|-------------------|-------------------|--------------|------------|-------------------|
+| `create_indoor_sensor()` | 20-26°C | 68-79°F | 40-60% | 24 hours | 5 minutes |
 
 ### **Quick Configuration Examples**
 
@@ -297,6 +291,57 @@ print(f"Reading every {sensor.reading_interval/1000} seconds")
 - **1-5 minutes**: Standard monitoring, good battery life
 - **15-60 minutes**: Long-term data collection, minimal power usage
 
+## 🚨 Alert Cooldown Configuration
+
+**Prevent notification spam with configurable alert cooldowns!**
+
+### **Constructor Configuration**
+
+```python
+# 5-minute cooldown (default)
+sensor = SimpleDHTML(pin=4, alert_cooldown_minutes=5)
+
+# No cooldown - immediate alerts for critical systems
+critical_sensor = SimpleDHTML(pin=4, alert_cooldown_minutes=0)
+
+# Long cooldown for outdoor monitoring
+outdoor_sensor = SimpleDHTML(pin=4, alert_cooldown_minutes=15)
+```
+
+### **Runtime Configuration**
+
+```python
+# Change cooldown anytime
+sensor.set_alert_cooldown(10)  # 10 minutes between alerts
+sensor.set_alert_cooldown(0)   # Immediate alerts
+sensor.set_alert_cooldown(30)  # 30-minute cooldown
+```
+
+### **Pre-configured Cooldowns**
+
+```python
+# Indoor: 5 minutes (responsive for living spaces)
+indoor = create_indoor_sensor(pin=4, alert_cooldown_minutes=5)
+```
+
+### **Cooldown Recommendations**
+
+| **Use Case** | **Recommended Cooldown** | **Reason** |
+|--------------|-------------------------|------------|
+| **Critical systems** | 0-1 minutes | Immediate response needed |
+| **Indoor monitoring** | 5 minutes | Balance between responsiveness and spam |
+| **Outdoor weather** | 10-15 minutes | Weather changes more slowly |
+| **Greenhouse/controlled** | 15-30 minutes | Stable environment, fewer alerts needed |
+| **Long-term research** | 30+ minutes | Focus on significant changes only |
+
+### **Alert Status Tracking**
+
+```python
+status = sensor.get_status()
+print(f"Alert cooldown: {status['alert_settings']['cooldown_minutes']} minutes")
+print(f"Last alert: {status['alert_settings']['seconds_since_last_alert']} seconds ago")
+```
+
 ## 🔧 Additional Customization
 
 ```python
@@ -329,7 +374,7 @@ dht22_sensor = SimpleDHTML(pin=5, sensor_type='DHT22', temp_unit='C', data_windo
 2. **Stores data** in MicroTetherDB with automatic TTL cleanup
 3. **Checks thresholds** - alerts if outside your ranges
 4. **Detects sudden changes** - compares with recent averages (last 10 readings)
-5. **Prevents spam** - 5-minute cooldown between similar alerts
+5. **Prevents spam** - Configurable cooldown between similar alerts (default: 5 minutes)
 6. **Enables analysis** - Rich querying and statistical functions
 7. **Calls your function** when anomalies are detected
 
@@ -351,30 +396,12 @@ dht22_sensor = SimpleDHTML(pin=5, sensor_type='DHT22', temp_unit='C', data_windo
 | **7 days** | Weekly trends, seasonal adjustments | Weekly cycles, anomaly baselines |
 | **30+ days** | Long-term analysis, predictive maintenance | Seasonal patterns, drift detection |
 
-## 🆚 vs Complex Solutions
-
-| Feature | SimpleDHTML | Complex ML |
-|---------|-------------|------------|
-| **Setup time** | 3 lines | 20+ lines |
-| **Memory usage** | ~10KB (scalable) | ~30KB+ |
-| **Configuration** | Just thresholds | Many parameters |
-| **Learning curve** | 5 minutes | Hours |
-| **Reliability** | Simple & robust | Complex edge cases |
-| **Data analysis** | Built-in with MicroTetherDB | Requires external tools |
-| **Historical data** | Automatic with TTL | Manual management |
-
 ## 🎁 Bonus: Pre-configured Options
 
 ```python
-# Available pre-configured sensors with temperature unit and data window support:
-create_indoor_sensor(pin, alert_callback, temp_unit='C', data_window_hours=24)
-    # Celsius: 20-26°C, Fahrenheit: 68-79°F, 40-60% humidity, 24-hour window
-
-create_outdoor_sensor(pin, alert_callback, temp_unit='F', data_window_hours=24)  
-    # Celsius: 0-40°C, Fahrenheit: 32-104°F, 10-90% humidity, 24-hour window
-
-create_greenhouse_sensor(pin, alert_callback, temp_unit='C', data_window_hours=168)
-    # Celsius: 18-30°C, Fahrenheit: 64-86°F, 50-80% humidity, 7-day window
+# Available pre-configured sensors with full configuration support:
+create_indoor_sensor(pin, alert_callback, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=5)
+    # Celsius: 20-26°C, Fahrenheit: 68-79°F, 40-60% humidity, 24-hour window, 5-minute cooldown
 ```
 
 ## 📚 Educational Examples
