@@ -254,7 +254,6 @@ advanced_db = MicroTetherDB(
 | **ESP32 (8MB)** | 4MB | 8MB | Weeks | Days-Weeks |
 | **FeatherS3** | **16MB** | **8MB PSRAM** | **Months-Years** | **Seasonal-Annual** |
 
-**The FeatherS3 + MicroTetherDB combination enables enterprise-grade IoT ML that was previously only possible on full computers!**
 
 ### ⚠️ **Realistic Storage Limits & Performance:**
 
@@ -340,21 +339,86 @@ learner = StatisticalLearning(pin=4, window_size=10)  # Smaller window
 
 These examples demonstrate **machine learning patterns that were IMPOSSIBLE before MicroTetherDB + Tendrl**. Each pattern showcases breakthrough capabilities:
 
-**🚫 BEFORE (Traditional Microcontroller Storage):**
-- Limited to ~100 readings in RAM
-- No persistent storage across restarts  
-- Manual file parsing (slow, error-prone)
-- No cloud connectivity
-- Fixed thresholds only
-- No long-term learning
+### 📱 **Target: Constrained Microcontrollers (NOT Full OS Devices)**
 
-**✅ AFTER (MicroTetherDB + Tendrl):**
-- **Long-Term Learning**: Weeks of persistent data with efficient queries
-- **Cloud Intelligence**: Bidirectional sync with offline storage  
-- **Adaptive Systems**: Cloud-enhanced learning and remote updates
-- **Time-Series Analysis**: Complex queries like `{'hour_of_day': 14, 'day_of_week': 1}`
-- **Seasonal Patterns**: Detect trends over months of data
-- **Remote Monitoring**: Cloud dashboards and real-time alerts
+**What we mean by "microcontroller":**
+- **ESP32, ESP8266, Arduino, STM32, RP2040** - No operating system, bare metal/RTOS
+- **MicroPython/CircuitPython** - Minimal runtime, severe memory constraints
+- **NOT Raspberry Pi** - Pi runs full Linux OS with databases, file systems, etc.
+- **NOT Desktop/Server** - Full computers have unlimited storage/processing
+
+**Key Constraints of True Microcontrollers:**
+- **Limited RAM**: 32KB-8MB total (vs Pi's 1-8GB)
+- **No OS Services**: No file system, databases, or complex libraries
+- **No SQL Engines**: No PostgreSQL, MySQL, SQLite, or database servers
+- **Restart = Data Loss**: RAM-only storage disappears on power cycle
+- **Linear Search Only**: No indexing, B-trees, or query optimization
+- **Single-threaded**: Limited processing power and concurrency
+
+**🚫 BEFORE (Traditional Constrained Microcontroller Storage):**
+
+```c
+// Arduino/ESP32 traditional approach - SEVERELY LIMITED
+float temp_readings[100];  // Fixed size array, RAM only
+int reading_count = 0;
+
+void store_reading(float temp) {
+    if (reading_count < 100) {
+        temp_readings[reading_count++] = temp;
+    }
+    // PROBLEMS:
+    // 1. Data lost on restart/power cycle!
+    // 2. No time-based queries possible!
+    // 3. Fixed size - can't grow dynamically!
+    // 4. No persistence across reboots!
+}
+
+// Want last week's 2PM readings? IMPOSSIBLE!
+// Want temperature trends over time? IMPOSSIBLE!  
+// Want to query by date/time? IMPOSSIBLE!
+// Want automatic data cleanup? IMPOSSIBLE!
+```
+
+**Traditional Microcontroller Limitations:**
+- **Arrays**: Fixed size, RAM-only, lost on restart, no time queries
+- **EEPROM**: Tiny capacity (1-4KB), wear leveling issues, no indexing
+- **Flash Files**: Manual string parsing, no queries, linear search only
+- **SD Cards**: Requires extra hardware, manual file management, no SQL
+- **Result**: Only basic data logging, NO sophisticated analysis possible
+
+**✅ AFTER (MicroTetherDB on Constrained Microcontrollers):**
+
+```python
+# ESP32 with MicroTetherDB - BREAKTHROUGH CAPABILITIES!
+db = MicroTetherDB(filename="sensor_data.db")  # Persistent across restarts!
+
+# Store with automatic indexing, TTL, and persistence
+db.put({
+    'temp': 24.5, 
+    'humidity': 65.0,
+    'timestamp': time.time(),
+    'hour_of_day': 14,
+    'day_of_week': 1
+}, ttl=30*24*3600)  # 30 days automatic cleanup
+
+# Complex queries that were IMPOSSIBLE on microcontrollers before:
+last_week_2pm = db.query({
+    'hour_of_day': 14,
+    'timestamp': {'$gte': time.time() - 7*24*3600}
+})
+
+# This single query would require THOUSANDS of lines of C code
+# on traditional Arduino/ESP32 platforms!
+```
+
+**MicroTetherDB Breakthrough on Constrained Devices:**
+- **MongoDB-style queries**: Complex queries on 32KB RAM devices!
+- **Persistent B-tree storage**: Data survives restarts and power loss
+- **Automatic indexing**: Fast queries even with thousands of records
+- **TTL management**: Automatic cleanup of old data
+- **Memory efficiency**: Works within severe RAM constraints
+- **Time-series analysis**: Efficient date/time range queries
+- **Dynamic sizing**: Grows/shrinks based on available storage
 
 **The combination of MicroTetherDB's persistent storage + efficient queries + Tendrl's cloud sync creates entirely new possibilities for IoT machine learning!**
 
