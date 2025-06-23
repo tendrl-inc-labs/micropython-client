@@ -2,7 +2,7 @@
 DHT11/DHT22 Machine Learning Package
 ===================================
 
-Plug-and-play anomaly detection for DHT temperature/humidity sensors.
+Simple learning patterns for DHT temperature/humidity sensors using MicroTetherDB.
 
 🚀 SIMPLE USAGE (Recommended):
     from examples.tendrl_dht import SimpleDHTML
@@ -20,16 +20,19 @@ Plug-and-play anomaly detection for DHT temperature/humidity sensors.
     indoor = create_indoor_sensor(pin=4, alert_callback=my_alert)
     indoor.start()
 
-📚 EDUCATIONAL EXAMPLE:
-    from examples.tendrl_dht import SimpleDHT22ML
+🧠 IMPOSSIBLE-BEFORE ML PATTERNS:
+    from examples.tendrl_dht import LongTermLearning, CloudTrendLearning, CloudAdaptiveLearning
     
-    # Basic educational ML example with clear code comments
-    ml = SimpleDHT22ML()
+    # Learn from weeks of data - impossible with traditional storage!
+    long_term = LongTermLearning(pin=4, learning_days=30)
+    long_term.take_reading()
 
 Available Components:
     - SimpleDHTML: 🎯 RECOMMENDED - Plug-and-play sensor with anomaly detection
     - create_*_sensor: Pre-configured sensors for common scenarios  
-    - SimpleDHT22ML: Educational example showing basic ML concepts
+    - LongTermLearning: Learn from weeks of persistent data (impossible before!)
+    - CloudTrendLearning: Cloud-synced intelligence with offline storage
+    - CloudAdaptiveLearning: Bidirectional cloud feedback learning
 """
 
 # Import main classes for easy access
@@ -42,8 +45,12 @@ try:
         create_greenhouse_sensor
     )
     
-    # Educational/research implementation
-    from .simple_dht22_ml import SimpleDHT22ML
+    # Impossible-before ML patterns - demonstrate MicroTetherDB + Tendrl capabilities
+    from .ml_examples import (
+        LongTermLearning,
+        CloudTrendLearning,
+        CloudAdaptiveLearning
+    )
     
     __all__ = [
         # Simple plug-and-play (RECOMMENDED)
@@ -52,8 +59,10 @@ try:
         'create_outdoor_sensor',
         'create_greenhouse_sensor',
         
-        # Educational example
-        'SimpleDHT22ML'
+        # Impossible-before ML patterns
+        'LongTermLearning',
+        'CloudTrendLearning', 
+        'CloudAdaptiveLearning'
     ]
 
 except ImportError as e:
@@ -62,6 +71,6 @@ except ImportError as e:
     __all__ = []
 
 # Package metadata
-__version__ = "1.0.0"
+__version__ = "2.0.0"  # Updated for simplified structure
 __author__ = "MicroTetherDB Team"
-__description__ = "Simple plug-and-play anomaly detection for DHT11/DHT22 sensors"
+__description__ = "Simple learning patterns for DHT11/DHT22 sensors using MicroTetherDB"

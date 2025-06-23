@@ -21,9 +21,11 @@ except ImportError:
 
 try:
     from tendrl.lib.microtetherdb import MicroTetherDB
+    from tendrl import Client
 except ImportError:
-    print("Warning: MicroTetherDB not available")
+    print("Warning: Tendrl SDK not available")
     MicroTetherDB = None
+    Client = None
 
 
 class SimpleDHTML:
@@ -39,7 +41,8 @@ class SimpleDHTML:
     """
 
     def __init__(self, pin, sensor_type='DHT22', alert_callback=None,
-                 temp_unit='C', data_window_hours=1, alert_cooldown_minutes=5):
+                 temp_unit='C', data_window_hours=1, alert_cooldown_minutes=5, window_size=20,
+                 enable_cloud_alerts=False, device_name=None, location=None):
         """
         Initialize the sensor
         
@@ -50,12 +53,20 @@ class SimpleDHTML:
             temp_unit: Temperature unit - 'C' for Celsius, 'F' for Fahrenheit
             data_window_hours: How many hours of data to keep (1, 24, 168=7days, 720=30days)
             alert_cooldown_minutes: Minutes to wait between similar alerts (default: 5)
+            window_size: Number of recent readings to use for context analysis (default: 20)
+            enable_cloud_alerts: Enable Tendrl cloud alerting (requires config.json)
+            device_name: Name for cloud alerts (e.g., "Living Room Sensor")
+            location: Location for cloud alerts (e.g., "Home", "Office")
         """
         self.sensor_type = sensor_type.upper()
         self.alert_callback = alert_callback or self._default_alert
         self.temp_unit = temp_unit.upper()
         self.data_window_hours = data_window_hours
         self.alert_cooldown_minutes = alert_cooldown_minutes
+        self.window_size = window_size
+        self.enable_cloud_alerts = enable_cloud_alerts
+        self.device_name = device_name or f"{sensor_type} Sensor"
+        self.location = location or "Unknown Location"
 
         # Initialize sensor
         try:
@@ -68,12 +79,16 @@ class SimpleDHTML:
 
         # Configure database based on data window
         self._configure_database()
+        
+        # Initialize cloud client if enabled
+        self.client = None
+        if self.enable_cloud_alerts:
+            self._init_cloud_client()
 
         # Configuration - default ranges in Celsius, will be converted if needed
         self.temp_range = [15, 35]  # Default acceptable temperature range (Celsius)
         self.humidity_range = [20, 80]  # Default acceptable humidity range
         self.reading_interval = 30000  # 30 seconds
-        self.window_size = 20  # Keep last 20 readings for context
 
         # State
         self.timer = None
@@ -108,6 +123,26 @@ class SimpleDHTML:
 
         # Store the TTL for use in _take_reading
         self._data_ttl = ttl_seconds
+
+    def _init_cloud_client(self):
+        """Initialize Tendrl client for cloud alerting"""
+        if not Client:
+            print("⚠️ Tendrl client not available - cloud alerts disabled")
+            self.enable_cloud_alerts = False
+            return
+            
+        try:
+            self.client = Client(
+                debug=False,  # Keep quiet for production use
+                managed=True,
+                offline_storage=True  # Store alerts offline if network fails
+            )
+            self.client.start()
+            print(f"✅ Cloud alerts enabled for {self.device_name}")
+        except Exception as e:
+            print(f"⚠️ Cloud client failed to initialize: {e}")
+            self.enable_cloud_alerts = False
+            self.client = None
 
     def _celsius_to_fahrenheit(self, celsius):
         """Convert Celsius to Fahrenheit"""
@@ -162,6 +197,23 @@ class SimpleDHTML:
         self.alert_cooldown_minutes = minutes
         self.alert_cooldown = minutes * 60
         print(f"Alert cooldown set to {minutes} minutes")
+
+    def set_window_size(self, size):
+        """
+        Set the number of recent readings to use for context analysis
+        
+        Args:
+            size: Number of readings (5-50 recommended, default: 20)
+        """
+        if size < 3:
+            size = 3
+            print("Warning: Window size too small, setting to minimum of 3")
+        elif size > 100:
+            size = 100
+            print("Warning: Window size too large, setting to maximum of 100")
+        
+        self.window_size = size
+        print(f"Context window size set to {size} readings")
 
     def start(self, interval_seconds=30):
         """
@@ -258,7 +310,7 @@ class SimpleDHTML:
 
         # Enhanced checks with recent data context
         if self.db and self.reading_count > 5:
-            recent_readings = self._get_recent_readings(10)
+            recent_readings = self._get_recent_readings(self.window_size)
             if recent_readings:
                 context_anomalies = self._check_context_anomalies(temp, humidity, recent_readings)
                 anomalies.extend(context_anomalies)
@@ -325,15 +377,68 @@ class SimpleDHTML:
         return (timestamp - self.last_alert_time) > self.alert_cooldown
 
     def _default_alert(self, temp, humidity, reason):
-        """Default alert function"""
-        print(f"🚨 ANOMALY DETECTED: {temp}°C, {humidity}% - {reason}")
+        """Default alert function with optional cloud alerting"""
+        # Always log locally
+        temp_display = self._convert_temp_display(temp)
+        unit_symbol = 'F' if self.temp_unit == 'F' else 'C'
+        print(f"🚨 ANOMALY DETECTED: {temp_display:.1f}°{unit_symbol}, {humidity}% - {reason}")
+        
+        # Send to cloud if enabled
+        if self.enable_cloud_alerts and self.client and self.client.client_enabled:
+            self._send_cloud_alert(temp, humidity, reason)
+
+    def _send_cloud_alert(self, temp, humidity, reason):
+        """Send alert to Tendrl cloud platform"""
+        try:
+            temp_display = self._convert_temp_display(temp)
+            unit_symbol = 'F' if self.temp_unit == 'F' else 'C'
+            
+            # Create alert data with context
+            alert_data = {
+                'alert_type': 'sensor_anomaly',
+                'device_name': self.device_name,
+                'location': self.location,
+                'sensor_type': self.sensor_type,
+                'temperature': round(temp_display, 1),
+                'temperature_unit': unit_symbol,
+                'humidity': round(humidity, 1),
+                'reason': reason,
+                'timestamp': time.time(),
+                'reading_count': self.reading_count,
+                'data_window_hours': self.data_window_hours,
+                'analysis_window_size': self.window_size
+            }
+            
+            # Add ML context if available
+            recent_readings = self._get_recent_readings(min(10, self.window_size))
+            if len(recent_readings) >= 3:
+                temps = [self._convert_temp_display(r['temp']) for r in recent_readings]
+                humidities = [r['humidity'] for r in recent_readings]
+                alert_data.update({
+                    'recent_temp_avg': round(sum(temps) / len(temps), 1),
+                    'recent_humidity_avg': round(sum(humidities) / len(humidities), 1),
+                    'temp_deviation': round(abs(temp_display - sum(temps) / len(temps)), 1),
+                    'humidity_deviation': round(abs(humidity - sum(humidities) / len(humidities)), 1)
+                })
+            
+            # Send to cloud with offline storage
+            self.client.publish(
+                data=alert_data,
+                tags=['sensor_alerts', 'anomaly_detection', self.location.lower().replace(' ', '_')],
+                entity=f"{self.device_name.lower().replace(' ', '_')}_alerts",
+                write_offline=True,  # Store offline if network fails
+                db_ttl=7*24*3600  # Keep offline alerts for 1 week
+            )
+            
+        except Exception as e:
+            print(f"⚠️ Cloud alert failed: {e}")
 
     def get_status(self):
         """Get current sensor status and recent statistics"""
         if not self.db:
             return {"error": "Database not available"}
 
-        recent = self._get_recent_readings(10)
+        recent = self._get_recent_readings(self.window_size)
         if not recent:
             return {"readings": 0, "status": "No data"}
 
@@ -375,73 +480,35 @@ class SimpleDHTML:
 
 
 # Convenience functions for even simpler usage
-def create_indoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=5):
+def create_indoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=5, window_size=20, 
+                        enable_cloud_alerts=False, device_name=None, location=None):
     """Create sensor configured for indoor monitoring (20-26°C/68-79°F, 40-60% humidity)"""
-    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes)
+    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes, window_size,
+                        enable_cloud_alerts, device_name or "Indoor Sensor", location or "Home")
     if temp_unit.upper() == 'F':
         sensor.set_thresholds(temp_range=[68, 79], humidity_range=[40, 60])  # Fahrenheit
     else:
         sensor.set_thresholds(temp_range=[20, 26], humidity_range=[40, 60])  # Celsius
     return sensor
 
-def create_outdoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=10):
+def create_outdoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=10, window_size=30,
+                         enable_cloud_alerts=False, device_name=None, location=None):
     """Create sensor configured for outdoor monitoring (0-40°C/32-104°F, 10-90% humidity)"""
-    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes)
+    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes, window_size,
+                        enable_cloud_alerts, device_name or "Outdoor Sensor", location or "Garden")
     if temp_unit.upper() == 'F':
         sensor.set_thresholds(temp_range=[32, 104], humidity_range=[10, 90])  # Fahrenheit
     else:
         sensor.set_thresholds(temp_range=[0, 40], humidity_range=[10, 90])  # Celsius
     return sensor
 
-def create_greenhouse_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=168, alert_cooldown_minutes=15):
+def create_greenhouse_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=168, alert_cooldown_minutes=15, window_size=50,
+                            enable_cloud_alerts=False, device_name=None, location=None):
     """Create sensor configured for greenhouse monitoring (18-30°C/64-86°F, 50-80% humidity)"""
-    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes)
+    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes, window_size,
+                        enable_cloud_alerts, device_name or "Greenhouse Sensor", location or "Greenhouse")
     if temp_unit.upper() == 'F':
         sensor.set_thresholds(temp_range=[64, 86], humidity_range=[50, 80])  # Fahrenheit
     else:
         sensor.set_thresholds(temp_range=[18, 30], humidity_range=[50, 80])  # Celsius
     return sensor
-
-# Demo usage
-def main():
-    """Demo showing simple usage"""
-    print("Simple DHT ML Demo")
-    print("=" * 30)
-
-    def my_alert(temp, humidity, reason):
-        print(f"📱 ALERT: {temp}°, {humidity}% - {reason}")
-        # Here you could send notifications, log to file, etc.
-
-    # Method 1: Manual setup with Fahrenheit and 24-hour window
-    sensor = SimpleDHTML(pin=4, sensor_type='DHT22', alert_callback=my_alert,
-                        temp_unit='F', data_window_hours=24, alert_cooldown_minutes=3)
-    sensor.set_thresholds(temp_range=[68, 77], humidity_range=[40, 60])  # Fahrenheit
-
-    # Method 2: Pre-configured for common scenarios
-    # indoor_sensor = create_indoor_sensor(pin=4, alert_callback=my_alert, temp_unit='F', data_window_hours=24)
-    # outdoor_sensor = create_outdoor_sensor(pin=5, alert_callback=my_alert, temp_unit='C', data_window_hours=168)
-
-    print("\nConfiguration:")
-    print(f"  Sensor: {sensor.sensor_type}")
-    print(f"  Temperature unit: {sensor.temp_unit}")
-    print(f"  Data window: {sensor.data_window_hours} hours")
-    print(f"  Temperature range: {[round(sensor._convert_temp_display(t), 1) for t in sensor.temp_range]}°{sensor.temp_unit}")
-    print(f"  Humidity range: {sensor.humidity_range}%")
-    print(f"  Reading interval: {sensor.reading_interval/1000}s")
-    print(f"  Alert cooldown: {sensor.alert_cooldown_minutes} minutes")
-
-    print("\nTo start monitoring:")
-    print("  sensor.start()  # Takes readings every 30 seconds")
-    print("  # Anomalies will trigger your alert_callback function")
-
-    print("\nTo adjust alert cooldown:")
-    print("  sensor.set_alert_cooldown(10)  # 10 minutes between alerts")
-    print("  sensor.set_alert_cooldown(0)   # No cooldown (immediate alerts)")
-
-    print("\nTo check status anytime:")
-    print("  status = sensor.get_status()")
-    print("  print(status)")
-
-
-if __name__ == "__main__":
-    main()
