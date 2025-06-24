@@ -209,22 +209,24 @@ sensor = SimpleDHTAnalytics(
 ### 🚀 **Advanced Setup - Massive Scale Possible:**
 Modern boards like the **Unexpected Maker FeatherS3** enable unprecedented statistical analysis capabilities:
 
-- **16MB QSPI Flash** - Store **months/years** of sensor data locally
+- **16MB QSPI Flash** - Potentially store **months** of sensor data locally
 - **8MB Extra QSPI PSRAM** - Massive in-memory datasets for complex statistical analysis
 - **ESP32-S3** - Dual-core processing for real-time statistical analysis + cloud sync
 
 **With this hardware + MicroTetherDB:**
 ```python
-# MASSIVE long-term analysis - extremely difficult before!
-massive_analyzer = LongTermStatisticalAnalysis(pin=4, learning_days=365)  # 1 YEAR of data!
+# ADVANCED long-term analysis - practical with larger hardware
+advanced_analyzer = LongTermStatisticalAnalysis(pin=4, learning_days=90)  # 3 months of data
 
-# Multiple sensors with complex statistical analysis
+# Multiple sensors with practical storage management
 multi_sensor_system = {
-    'indoor': LongTermStatisticalAnalysis(pin=4, learning_days=180),
-    'outdoor': LongTermStatisticalAnalysis(pin=5, learning_days=180), 
-    'greenhouse': LongTermStatisticalAnalysis(pin=6, learning_days=180),
-    'basement': LongTermStatisticalAnalysis(pin=7, learning_days=180)
+    'indoor': LongTermStatisticalAnalysis(pin=4, learning_days=60),     # 2 months
+    'outdoor': LongTermStatisticalAnalysis(pin=5, learning_days=60),    # 2 months
+    'greenhouse': LongTermStatisticalAnalysis(pin=6, learning_days=90), # 3 months (most important)
+    'basement': LongTermStatisticalAnalysis(pin=7, learning_days=30)    # 1 month (less variation)
 }
+# Configure each sensor to read every 5-10 minutes instead of 30 seconds
+# Total storage: ~8-12MB for all 4 sensors combined
 
 # Advanced statistical analysis with 8MB PSRAM for in-memory processing
 advanced_db = MicroTetherDB(
@@ -240,7 +242,7 @@ advanced_db = MicroTetherDB(
 |----------|-------|-----|--------------|-----------------|
 | **Basic ESP32** | 4MB | 320KB | Days | Hours-Days |
 | **ESP32 (8MB)** | 4MB | 8MB | Weeks | Days-Weeks |
-| **FeatherS3** | **16MB** | **8MB PSRAM** | **Months-Years** | **Seasonal-Annual** |
+| **FeatherS3** | **16MB** | **8MB PSRAM** | **Months** | **Seasonal** |
 
 
 ### ⚠️ **Realistic Capabilities & Constraints:**
