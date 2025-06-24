@@ -1,7 +1,7 @@
 # DHT Sensor ML Examples - Simple Learning Patterns
 ## Machine Learning for Environmental Monitoring with MicroTetherDB
 
-This directory contains focused examples of using MicroTetherDB for DHT sensor machine learning applications. All examples have been simplified into **3 main files** for easy understanding and usage.
+This directory contains focused examples of using MicroTetherDB for DHT temperature and humidity sensor for machine learning applications. All examples have been simplified into **3 main files** for easy understanding and usage.
 
 ## 📁 File Structure
 
