@@ -198,7 +198,7 @@ sensor = SimpleDHTML(
 ### Minimum Setup:
 - **ESP32** or similar MicroPython board
 - **DHT22** sensor (or DHT11 for basic use)
-- **4MB+ RAM** recommended for learning patterns
+- **2MB+ RAM** recommended for learning patterns
 - **512KB+ flash** for data storage
 
 ### Recommended Setup:
@@ -372,11 +372,6 @@ void store_reading(float temp) {
     // 3. Fixed size - can't grow dynamically!
     // 4. No persistence across reboots!
 }
-
-// Want last week's 2PM readings? IMPOSSIBLE!
-// Want temperature trends over time? IMPOSSIBLE!  
-// Want to query by date/time? IMPOSSIBLE!
-// Want automatic data cleanup? IMPOSSIBLE!
 ```
 
 **Traditional Microcontroller Limitations:**
@@ -412,7 +407,7 @@ last_week_2pm = db.query({
 ```
 
 **MicroTetherDB Breakthrough on Constrained Devices:**
-- **MongoDB-style queries**: Complex queries on 32KB RAM devices!
+- **MongoDB-style queries**: Complex queries on 64KB RAM devices!
 - **Persistent B-tree storage**: Data survives restarts and power loss
 - **Automatic indexing**: Fast queries even with thousands of records
 - **TTL management**: Automatic cleanup of old data
