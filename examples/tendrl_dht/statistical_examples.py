@@ -71,9 +71,9 @@ class LongTermStatisticalAnalysis:
         # This would be extremely difficult with simple arrays or basic files
         # 
         # SCALING: With boards like UM FeatherS3 (16MB flash + 8MB PSRAM):
-        # - learning_days=90-180 (practical limit due to btree performance)
-        # - Multiple sensors simultaneously
-        # - Complex ML models in 8MB PSRAM
+        # - learning_days=90-180 (approaching practical limits)
+        # - Multiple sensors simultaneously  
+        # - More complex statistical analysis with additional RAM
         # - Smart data rotation: detailed recent + summarized historical
         if DB_AVAILABLE:
             self.db = MicroTetherDB(
@@ -239,7 +239,7 @@ class CloudTrendAnalysis:
     Detect trends locally AND sync to cloud for remote monitoring/control
     
     Traditional approach: Local only, no remote visibility
-    MicroTetherDB + Tendrl: Bidirectional cloud intelligence
+    MicroTetherDB + Tendrl: Cloud connectivity for data analysis
     """
     
     def __init__(self, pin=4, sync_interval_minutes=30):
@@ -375,7 +375,7 @@ class CloudAdaptiveStatistics:
     Learn locally, get cloud intelligence, adapt thresholds remotely
     
     Traditional approach: Fixed thresholds, no remote updates
-    MicroTetherDB + Tendrl: Cloud-enhanced adaptive intelligence
+    MicroTetherDB + Tendrl: Cloud-connected adaptive thresholds
     """
     
     def __init__(self, pin=4):

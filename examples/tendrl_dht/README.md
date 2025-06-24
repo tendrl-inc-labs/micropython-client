@@ -52,7 +52,7 @@ adaptive.take_reading()  # Cloud-enhanced adaptation
 - **Weeks of persistent data**: File storage with efficient TTL cleanup
 - **Cloud intelligence**: Bidirectional sync with offline storage
 - **Advanced queries**: `{'hour_of_day': 14, 'timestamp': {'$gte': week_ago}}`
-- **25-167x faster** than traditional file storage
+- **Significantly faster** than traditional file storage for time-series queries
 - **Remote monitoring**: Cloud dashboards and alerts
 
 ## 🚀 Quick Start Guide
@@ -101,7 +101,7 @@ with open('data.txt', 'a') as f:  # Slow, hard to query
 recent_data = db.query({
     'timestamp': {'$gte': now - 3600},  # Last hour
     'temp': {'$exists': True}
-})  # 25-167x faster than files, automatic TTL cleanup
+})  # Much faster than traditional file approaches, automatic TTL cleanup
 ```
 
 ### The 3 Core Patterns:
@@ -114,7 +114,7 @@ long_term.take_reading()  # Calculates deviations, detects anomalies
 ```
 - **What it does**: Calculates averages and deviations, detects statistical outliers
 - **MicroTetherDB advantage**: Efficient retrieval of weeks of historical data
-- **Memory**: ~25KB RAM
+- **Memory**: ~20-30KB RAM
 
 #### 2. **Cloud Trend Analysis** (~60 lines)  
 ```python
@@ -124,7 +124,7 @@ trends.take_reading()  # Detects rising/falling trends, syncs to cloud
 ```
 - **What it does**: Analyzes temperature change rates (°C per hour) with cloud sync
 - **MicroTetherDB advantage**: Time-based queries for trend analysis + cloud storage
-- **Memory**: ~20KB RAM
+- **Memory**: ~15-25KB RAM
 
 #### 3. **Adaptive Statistics** (~80 lines)
 ```python
@@ -134,7 +134,7 @@ adaptive.take_reading()  # Adapts thresholds using percentiles
 ```
 - **What it does**: Uses percentiles to adapt normal ranges, with cloud feedback
 - **MicroTetherDB advantage**: Historical data analysis with complex queries
-- **Memory**: ~30KB RAM
+- **Memory**: ~25-35KB RAM
 
 ## 🎛️ Configuration Examples
 
@@ -206,11 +206,11 @@ sensor = SimpleDHTAnalytics(
 - **DHT22** sensors (better accuracy than DHT11)
 - **WiFi connection** for cloud features
 
-### 🚀 **Advanced Setup - Massive Scale Possible:**
-Modern boards like the **Unexpected Maker FeatherS3** enable unprecedented statistical analysis capabilities:
+### 🚀 **Advanced Setup - Larger Scale Possible:**
+Modern boards like the **Unexpected Maker FeatherS3** enable more advanced statistical analysis capabilities:
 
 - **16MB QSPI Flash** - Potentially store **months** of sensor data locally
-- **8MB Extra QSPI PSRAM** - Massive in-memory datasets for complex statistical analysis
+- **8MB Extra QSPI PSRAM** - Larger in-memory datasets for more complex statistical analysis
 - **ESP32-S3** - Dual-core processing for real-time statistical analysis + cloud sync
 
 **With this hardware + MicroTetherDB:**
@@ -262,23 +262,23 @@ advanced_db = MicroTetherDB(
 **Realistic Storage Strategies for Microcontrollers:**
 ```python
 # PRACTICAL: High-frequency short-term (every 30 seconds for 1 week)
-short_term = LongTermStatisticalAnalysis(pin=4, learning_days=7)     # ~500KB, very responsive
+short_term = LongTermStatisticalAnalysis(pin=4, learning_days=7)     # ~500KB-1MB, responsive
 
 # PRACTICAL: Medium-frequency medium-term (every 5 minutes for 30 days) 
-medium_term = LongTermStatisticalAnalysis(pin=4, learning_days=30)   # ~2MB, good performance
+medium_term = LongTermStatisticalAnalysis(pin=4, learning_days=30)   # ~1-3MB, good performance
 # Configure: take_reading() called every 5 minutes instead of 30 seconds
 
 # PRACTICAL: Low-frequency long-term (every 30 minutes for 6 months)
-long_term = LongTermStatisticalAnalysis(pin=4, learning_days=180)    # ~4MB, slower but usable
+long_term = LongTermStatisticalAnalysis(pin=4, learning_days=180)    # ~3-5MB, slower queries
 # Configure: take_reading() called every 30 minutes
 
 # SMART STRATEGY: Hierarchical storage with data summarization
 class SmartLongTermStorage:
     def __init__(self):
-        # Recent data: every 1 minute for 24 hours (~1MB)
+        # Recent data: every 1 minute for 24 hours (~500KB-1MB)
         self.recent_db = MicroTetherDB(filename="recent_1min.db")
         
-        # Daily summaries: min/max/avg for 1 year (~50KB)
+        # Daily summaries: min/max/avg for 1 year (~50-100KB)
         self.daily_db = MicroTetherDB(filename="daily_summaries.db")
         
     def store_reading(self, temp, humidity):
@@ -332,7 +332,7 @@ class ProductionSensorSystem:
                 'hour': int((now % 86400) / 3600)
             }, ttl=7*24*3600)  # 1 week
 
-# Result: ~1.5MB total storage, fits comfortably on ESP32
+# Result: ~1-2MB total storage, fits on most ESP32 variants
 sensor_system = ProductionSensorSystem()
 ```
 
@@ -491,7 +491,7 @@ def get_last_hour_readings():
 **✅ AFTER (MicroTetherDB on Constrained Microcontrollers):**
 
 ```python
-# ESP32 with MicroTetherDB - BREAKTHROUGH CAPABILITIES!
+# ESP32 with MicroTetherDB - Enhanced capabilities for microcontrollers
 db = MicroTetherDB(filename="sensor_data.db")  # Persistent across restarts!
 
 # Store with automatic indexing, TTL, and persistence
@@ -513,13 +513,13 @@ last_week_2pm = db.query({
 # on traditional Arduino/ESP32 platforms!
 ```
 
-**MicroTetherDB Breakthrough on Constrained Devices:**
-- **MongoDB-style queries**: Complex queries on 64KB RAM devices!
+**MicroTetherDB Benefits on Constrained Devices:**
+- **MongoDB-style queries**: More complex queries than traditional approaches
 - **Persistent B-tree storage**: Data survives restarts and power loss
-- **Automatic indexing**: Fast queries even with thousands of records
+- **Automatic indexing**: Faster queries than linear search approaches
 - **TTL management**: Automatic cleanup of old data
-- **Memory efficiency**: Works within severe RAM constraints
-- **Time-series analysis**: Efficient date/time range queries
+- **Memory efficiency**: Designed for RAM-constrained environments
+- **Time-series analysis**: More efficient date/time range queries
 - **Dynamic sizing**: Grows/shrinks based on available storage
 
 **The combination of MicroTetherDB's structured storage + query capabilities + Tendrl's cloud sync enables sophisticated data analysis on constrained microcontrollers that was previously only practical on full OS devices.**
