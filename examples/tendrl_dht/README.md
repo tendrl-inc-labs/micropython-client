@@ -257,17 +257,38 @@ advanced_db = MicroTetherDB(
 - **Not Real-time**: Constrained by single-threaded execution
 - **Not Unlimited Scale**: Storage and query performance have limits
 
-**Realistic Storage Performance:**
+**Realistic Storage Strategies for Microcontrollers:**
 ```python
-# PRACTICAL: Good performance for microcontroller applications
-short_term = LongTermStatisticalAnalysis(pin=4, learning_days=7)     # ~10MB, responsive
-medium_term = LongTermStatisticalAnalysis(pin=4, learning_days=30)   # ~50MB, slower queries
+# PRACTICAL: High-frequency short-term (every 30 seconds for 1 week)
+short_term = LongTermStatisticalAnalysis(pin=4, learning_days=7)     # ~500KB, very responsive
 
-# CHALLENGING: Possible but with performance trade-offs
-long_term = LongTermStatisticalAnalysis(pin=4, learning_days=90)     # ~150MB, slow queries
+# PRACTICAL: Medium-frequency medium-term (every 5 minutes for 30 days) 
+medium_term = LongTermStatisticalAnalysis(pin=4, learning_days=30)   # ~2MB, good performance
+# Configure: take_reading() called every 5 minutes instead of 30 seconds
 
-# AVOID: Likely too slow for practical use
-massive_term = LongTermStatisticalAnalysis(pin=4, learning_days=365) # ~600MB, very slow
+# PRACTICAL: Low-frequency long-term (every 30 minutes for 6 months)
+long_term = LongTermStatisticalAnalysis(pin=4, learning_days=180)    # ~4MB, slower but usable
+# Configure: take_reading() called every 30 minutes
+
+# SMART STRATEGY: Hierarchical storage with data summarization
+class SmartLongTermStorage:
+    def __init__(self):
+        # Recent data: every 1 minute for 24 hours (~1MB)
+        self.recent_db = MicroTetherDB(filename="recent_1min.db")
+        
+        # Daily summaries: min/max/avg for 1 year (~50KB)
+        self.daily_db = MicroTetherDB(filename="daily_summaries.db")
+        
+    def store_reading(self, temp, humidity):
+        # Store recent reading with 24h TTL
+        self.recent_db.put({
+            'temp': temp, 'humidity': humidity, 'timestamp': time.time()
+        }, ttl=24*3600)
+        
+        # Create daily summary (much smaller!)
+        if self._is_end_of_day():
+            daily_summary = self._create_daily_summary()
+            self.daily_db.put(daily_summary, ttl=365*24*3600)  # 1 year
 ```
 
 **The Real Value - Database Capabilities on Microcontrollers:**
@@ -277,14 +298,40 @@ massive_term = LongTermStatisticalAnalysis(pin=4, learning_days=365) # ~600MB, v
 4. **TTL Management**: Automatic cleanup instead of manual memory management
 5. **Persistence**: Data survives restarts instead of RAM-only storage
 
-**Production Recommendations:**
+**Production Recommendations for Real Microcontrollers:**
 ```python
-# Realistic approach for microcontroller constraints
-practical_storage = LongTermStatisticalAnalysis(
-    pin=4, 
-    learning_days=14,          # 2 weeks detailed data
-    summary_retention_days=90  # 3 months of hourly summaries
-)
+# TYPICAL ESP32 (4MB flash): Smart frequency management
+class ProductionSensorSystem:
+    def __init__(self):
+        # High frequency for anomaly detection (last 4 hours)
+        self.realtime_db = MicroTetherDB(
+            filename="realtime.db",
+            ram_percentage=30  # ~300KB for 4-hour buffer
+        )
+        
+        # Medium frequency for trend analysis (last 7 days) 
+        self.trends_db = MicroTetherDB(
+            filename="trends.db", 
+            ram_percentage=20   # ~1MB for weekly patterns
+        )
+    
+    def take_reading(self, temp, humidity):
+        now = time.time()
+        
+        # Store every reading for immediate anomaly detection
+        self.realtime_db.put({
+            'temp': temp, 'humidity': humidity, 'timestamp': now
+        }, ttl=4*3600)  # 4 hours only
+        
+        # Store every 10th reading (5-minute intervals) for trends
+        if self.reading_count % 10 == 0:
+            self.trends_db.put({
+                'temp': temp, 'humidity': humidity, 'timestamp': now,
+                'hour': int((now % 86400) / 3600)
+            }, ttl=7*24*3600)  # 1 week
+
+# Result: ~1.5MB total storage, fits comfortably on ESP32
+sensor_system = ProductionSensorSystem()
 ```
 
 **Bottom Line**: This brings **database-like capabilities** to microcontrollers, enabling **basic statistical analysis** that was previously impractical due to storage and query limitations.
