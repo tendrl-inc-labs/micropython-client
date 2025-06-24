@@ -1,12 +1,17 @@
 """
-Simple DHT11/DHT22 ML - Plug and Play Anomaly Detection
-======================================================
+Simple DHT11/DHT22 Statistical Analytics - Plug and Play Anomaly Detection
+=========================================================================
 
-A streamlined approach to DHT sensor monitoring with built-in anomaly detection.
+A streamlined approach to DHT sensor monitoring with built-in statistical anomaly detection.
 Just provide thresholds and get alerts - no complex configuration needed.
 
+This uses statistical analysis techniques like:
+- Threshold-based anomaly detection
+- Rolling averages for context
+- Deviation analysis from historical patterns
+
 Usage:
-    sensor = SimpleDHTML(pin=4, sensor_type='DHT22')
+    sensor = SimpleDHTAnalytics(pin=4, sensor_type='DHT22')
     sensor.set_thresholds(temp_range=[18, 28], humidity_range=[30, 70])
     sensor.start()  # Runs automatically, calls your alert function on anomalies
 """
@@ -28,7 +33,7 @@ except ImportError:
     Client = None
 
 
-class SimpleDHTML:
+class SimpleDHTAnalytics:
     """
     Plug-and-play DHT sensor with anomaly detection
     
@@ -483,7 +488,7 @@ class SimpleDHTML:
 def create_indoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=5, window_size=20, 
                         enable_cloud_alerts=False, device_name=None, location=None):
     """Create sensor configured for indoor monitoring (20-26°C/68-79°F, 40-60% humidity)"""
-    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes, window_size,
+    sensor = SimpleDHTAnalytics(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes, window_size,
                         enable_cloud_alerts, device_name or "Indoor Sensor", location or "Home")
     if temp_unit.upper() == 'F':
         sensor.set_thresholds(temp_range=[68, 79], humidity_range=[40, 60])  # Fahrenheit
@@ -494,7 +499,7 @@ def create_indoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_ho
 def create_outdoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=10, window_size=30,
                          enable_cloud_alerts=False, device_name=None, location=None):
     """Create sensor configured for outdoor monitoring (0-40°C/32-104°F, 10-90% humidity)"""
-    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes, window_size,
+    sensor = SimpleDHTAnalytics(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes, window_size,
                         enable_cloud_alerts, device_name or "Outdoor Sensor", location or "Garden")
     if temp_unit.upper() == 'F':
         sensor.set_thresholds(temp_range=[32, 104], humidity_range=[10, 90])  # Fahrenheit
@@ -505,7 +510,7 @@ def create_outdoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_h
 def create_greenhouse_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=168, alert_cooldown_minutes=15, window_size=50,
                             enable_cloud_alerts=False, device_name=None, location=None):
     """Create sensor configured for greenhouse monitoring (18-30°C/64-86°F, 50-80% humidity)"""
-    sensor = SimpleDHTML(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes, window_size,
+    sensor = SimpleDHTAnalytics(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes, window_size,
                         enable_cloud_alerts, device_name or "Greenhouse Sensor", location or "Greenhouse")
     if temp_unit.upper() == 'F':
         sensor.set_thresholds(temp_range=[64, 86], humidity_range=[50, 80])  # Fahrenheit

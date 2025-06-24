@@ -1,15 +1,15 @@
-# DHT Sensor ML Examples - Simple Learning Patterns
-## Machine Learning for Environmental Monitoring with MicroTetherDB
+# DHT Sensor Examples
+## Statistical Analysis for Environmental Monitoring with MicroTetherDB
 
-This directory contains focused examples of using MicroTetherDB for DHT temperature and humidity sensor for machine learning applications. All examples have been simplified into **3 main files** for easy understanding and usage.
+This directory contains focused examples of using MicroTetherDB for DHT temperature and humidity sensor statistical analysis applications. All examples have been simplified into **3 main files** for easy understanding and usage.
 
 ## 📁 File Structure
 
-### 🎯 `simple_sensor_ml.py` - **Start Here!**
+### 🎯 `simple_dht.py` - **Start Here!**
 **Perfect for beginners** - Plug-and-play anomaly detection with minimal setup.
 
 ```python
-from simple_sensor_ml import SimpleDHTML, create_indoor_sensor
+from simple_dht import SimpleDHTAnalytics, create_indoor_sensor
 
 # One-line setup for indoor monitoring
 sensor = create_indoor_sensor(pin=4, temp_unit='F')
@@ -26,25 +26,25 @@ sensor.start()  # That's it!
 - 📊 **Context analysis** with rolling windows
 - 💾 **Automatic data management** with TTL
 
-### 🧠 `ml_examples.py` - **Example Patterns** 
+### 📊 `statistical_examples.py` - **Example Patterns** 
 
-1. **`LongTermLearning`** - Learn from WEEKS of persistent data (~70 lines)
-2. **`CloudTrendLearning`** - Cloud-synced intelligence with offline storage (~60 lines)
-3. **`CloudAdaptiveLearning`** - Bidirectional cloud feedback learning (~80 lines)
+1. **`LongTermStatisticalAnalysis`** - Analyze WEEKS of persistent data (~70 lines)
+2. **`CloudTrendAnalysis`** - Cloud-synced trend analysis with offline storage (~60 lines)
+3. **`CloudAdaptiveStatistics`** - Bidirectional cloud feedback statistics (~80 lines)
 
 ```python
-from ml_examples import LongTermLearning, CloudTrendLearning, CloudAdaptiveLearning
+from statistical_examples import LongTermStatisticalAnalysis, CloudTrendAnalysis, CloudAdaptiveStatistics
 
-# Learn from 30 days of data - impossible with traditional storage!
-long_term = LongTermLearning(pin=4, learning_days=30)
-long_term.take_reading()  # Learns weekly/seasonal patterns
+# Analyze 30 days of data - extremely difficult with traditional storage!
+long_term = LongTermStatisticalAnalysis(pin=4, learning_days=30)
+long_term.take_reading()  # Analyzes weekly/seasonal patterns
 
 # Cloud-synced trends with offline storage
-cloud_trends = CloudTrendLearning(pin=4, sync_interval_minutes=30)
+cloud_trends = CloudTrendAnalysis(pin=4, sync_interval_minutes=30)
 cloud_trends.take_reading()  # Syncs to cloud, works offline
 
-# Adaptive learning with cloud intelligence
-adaptive = CloudAdaptiveLearning(pin=4)
+# Adaptive statistics with cloud intelligence
+adaptive = CloudAdaptiveStatistics(pin=4)
 adaptive.take_reading()  # Cloud-enhanced adaptation
 ```
 
@@ -57,29 +57,29 @@ adaptive.take_reading()  # Cloud-enhanced adaptation
 
 ## 🚀 Quick Start Guide
 
-### 1. **Just Want Alerts?** → Use `simple_sensor_ml.py`
+### 1. **Just Want Alerts?** → Use `simple_dht.py`
 ```python
-from simple_sensor_ml import create_indoor_sensor
+from simple_dht import create_indoor_sensor
 
 sensor = create_indoor_sensor(pin=4)
 sensor.start()
 ```
 
-### 2. **Want to Learn ML Patterns?** → Use `ml_examples.py`  
+### 2. **Want to Learn Statistical Patterns?** → Use `statistical_examples.py`  
 ```python
-from ml_examples import StatisticalLearning
+from statistical_examples import LongTermStatisticalAnalysis
 
-# Simple learning pattern demonstration
-learner = StatisticalLearning(pin=4, window_size=15)
+# Simple statistical pattern demonstration
+analyzer = LongTermStatisticalAnalysis(pin=4, learning_days=7)
 for i in range(30):
-    learner.take_reading()
+    analyzer.take_reading()
     time.sleep(30)  # Take reading every 30 seconds
 ```
 
 ### 3. **Want Production Examples?** → Build from the patterns above
-The learning patterns in `ml_examples.py` can be combined and extended for production use.
+The statistical patterns in `statistical_examples.py` can be combined and extended for production use.
 
-## 🧠 Learning Patterns Explained
+## 📊 Statistical Patterns Explained
 
 ### Why MicroTetherDB Makes This Possible
 
@@ -106,59 +106,59 @@ recent_data = db.query({
 
 ### The 3 Core Patterns:
 
-#### 1. **Statistical Learning** (~50 lines)
+#### 1. **Long-Term Statistical Analysis** (~70 lines)
 ```python
-# Learn what's "normal" and detect outliers
-stats = StatisticalLearning(pin=4, window_size=20)
-stats.take_reading()  # Calculates Z-scores, detects anomalies
+# Analyze statistical patterns from weeks of data
+long_term = LongTermStatisticalAnalysis(pin=4, learning_days=30)
+long_term.take_reading()  # Calculates deviations, detects anomalies
 ```
-- **What it does**: Learns average and standard deviation, detects statistical outliers
-- **MicroTetherDB advantage**: Efficient retrieval of recent N readings
-- **Memory**: ~10KB RAM
+- **What it does**: Calculates averages and deviations, detects statistical outliers
+- **MicroTetherDB advantage**: Efficient retrieval of weeks of historical data
+- **Memory**: ~25KB RAM
 
-#### 2. **Trend Learning** (~40 lines)  
+#### 2. **Cloud Trend Analysis** (~60 lines)  
 ```python
-# Detect gradual changes over time
-trends = TrendLearning(pin=4, trend_minutes=30)
-trends.take_reading()  # Detects rising/falling trends
+# Detect trends and sync to cloud
+trends = CloudTrendAnalysis(pin=4, sync_interval_minutes=30)
+trends.take_reading()  # Detects rising/falling trends, syncs to cloud
 ```
-- **What it does**: Analyzes temperature change rates (°C per hour)
-- **MicroTetherDB advantage**: Time-based queries for trend analysis
-- **Memory**: ~15KB RAM
-
-#### 3. **Adaptive Learning** (~60 lines)
-```python
-# Learn normal ranges from actual data
-adaptive = AdaptiveLearning(pin=4)
-adaptive.take_reading()  # Adapts thresholds based on history
-```
-- **What it does**: Uses percentiles to learn normal ranges, adapts over time
-- **MicroTetherDB advantage**: Historical data analysis with complex queries
+- **What it does**: Analyzes temperature change rates (°C per hour) with cloud sync
+- **MicroTetherDB advantage**: Time-based queries for trend analysis + cloud storage
 - **Memory**: ~20KB RAM
+
+#### 3. **Adaptive Statistics** (~80 lines)
+```python
+# Adapt thresholds based on historical data
+adaptive = CloudAdaptiveStatistics(pin=4)
+adaptive.take_reading()  # Adapts thresholds using percentiles
+```
+- **What it does**: Uses percentiles to adapt normal ranges, with cloud feedback
+- **MicroTetherDB advantage**: Historical data analysis with complex queries
+- **Memory**: ~30KB RAM
 
 ## 🎛️ Configuration Examples
 
 ### Temperature Units
 ```python
 # Fahrenheit
-sensor = SimpleDHTML(pin=4, temp_unit='F')
+sensor = SimpleDHTAnalytics(pin=4, temp_unit='F')
 sensor.set_thresholds(temp_range=[68, 79])  # °F
 
 # Celsius  
-sensor = SimpleDHTML(pin=4, temp_unit='C')
+sensor = SimpleDHTAnalytics(pin=4, temp_unit='C')
 sensor.set_thresholds(temp_range=[20, 26])  # °C
 ```
 
 ### Data Storage Windows
 ```python
 # Short-term (1 hour) - uses RAM only
-sensor = SimpleDHTML(pin=4, data_window_hours=1)
+sensor = SimpleDHTAnalytics(pin=4, data_window_hours=1)
 
 # Medium-term (24 hours) - uses RAM with TTL
-sensor = SimpleDHTML(pin=4, data_window_hours=24)
+sensor = SimpleDHTAnalytics(pin=4, data_window_hours=24)
 
 # Long-term (7 days) - uses file storage  
-sensor = SimpleDHTML(pin=4, data_window_hours=168)
+sensor = SimpleDHTAnalytics(pin=4, data_window_hours=168)
 ```
 
 ### Alert Customization
@@ -167,14 +167,14 @@ def my_custom_alert(temp, humidity, reason):
     print(f"🚨 ALERT: {temp}°C, {humidity}% - {reason}")
     # Send email, SMS, webhook, etc.
     
-sensor = SimpleDHTML(pin=4, alert_callback=my_custom_alert)
+sensor = SimpleDHTAnalytics(pin=4, alert_callback=my_custom_alert)
 sensor.set_alert_cooldown(minutes=10)  # 10 min between similar alerts
 ```
 
 ### Cloud Integration
 ```python
 # Enable cloud alerts (requires config.json)
-sensor = SimpleDHTML(
+sensor = SimpleDHTAnalytics(
     pin=4,
     enable_cloud_alerts=True,
     device_name="Living Room Sensor",
@@ -207,26 +207,26 @@ sensor = SimpleDHTML(
 - **WiFi connection** for cloud features
 
 ### 🚀 **Advanced Setup - Massive Scale Possible:**
-Modern boards like the **Unexpected Maker FeatherS3** enable unprecedented ML capabilities:
+Modern boards like the **Unexpected Maker FeatherS3** enable unprecedented statistical analysis capabilities:
 
 - **16MB QSPI Flash** - Store **months/years** of sensor data locally
-- **8MB Extra QSPI PSRAM** - Massive in-memory datasets for complex ML
-- **ESP32-S3** - Dual-core processing for real-time ML + cloud sync
+- **8MB Extra QSPI PSRAM** - Massive in-memory datasets for complex statistical analysis
+- **ESP32-S3** - Dual-core processing for real-time statistical analysis + cloud sync
 
 **With this hardware + MicroTetherDB:**
 ```python
-# MASSIVE long-term learning - impossible before!
-massive_learner = LongTermLearning(pin=4, learning_days=365)  # 1 YEAR of data!
+# MASSIVE long-term analysis - extremely difficult before!
+massive_analyzer = LongTermStatisticalAnalysis(pin=4, learning_days=365)  # 1 YEAR of data!
 
-# Multiple sensors with complex ML
+# Multiple sensors with complex statistical analysis
 multi_sensor_system = {
-    'indoor': LongTermLearning(pin=4, learning_days=180),
-    'outdoor': LongTermLearning(pin=5, learning_days=180), 
-    'greenhouse': LongTermLearning(pin=6, learning_days=180),
-    'basement': LongTermLearning(pin=7, learning_days=180)
+    'indoor': LongTermStatisticalAnalysis(pin=4, learning_days=180),
+    'outdoor': LongTermStatisticalAnalysis(pin=5, learning_days=180), 
+    'greenhouse': LongTermStatisticalAnalysis(pin=6, learning_days=180),
+    'basement': LongTermStatisticalAnalysis(pin=7, learning_days=180)
 }
 
-# Advanced ML with 8MB PSRAM for in-memory processing
+# Advanced statistical analysis with 8MB PSRAM for in-memory processing
 advanced_db = MicroTetherDB(
     in_memory=True,
     ram_percentage=80,  # Use most of the 8MB PSRAM!
@@ -260,14 +260,14 @@ advanced_db = MicroTetherDB(
 **Realistic Storage Performance:**
 ```python
 # PRACTICAL: Good performance for microcontroller applications
-short_term = LongTermLearning(pin=4, learning_days=7)     # ~10MB, responsive
-medium_term = LongTermLearning(pin=4, learning_days=30)   # ~50MB, slower queries
+short_term = LongTermStatisticalAnalysis(pin=4, learning_days=7)     # ~10MB, responsive
+medium_term = LongTermStatisticalAnalysis(pin=4, learning_days=30)   # ~50MB, slower queries
 
 # CHALLENGING: Possible but with performance trade-offs
-long_term = LongTermLearning(pin=4, learning_days=90)     # ~150MB, slow queries
+long_term = LongTermStatisticalAnalysis(pin=4, learning_days=90)     # ~150MB, slow queries
 
 # AVOID: Likely too slow for practical use
-massive_term = LongTermLearning(pin=4, learning_days=365) # ~600MB, very slow
+massive_term = LongTermStatisticalAnalysis(pin=4, learning_days=365) # ~600MB, very slow
 ```
 
 **The Real Value - Database Capabilities on Microcontrollers:**
@@ -280,7 +280,7 @@ massive_term = LongTermLearning(pin=4, learning_days=365) # ~600MB, very slow
 **Production Recommendations:**
 ```python
 # Realistic approach for microcontroller constraints
-practical_storage = LongTermLearning(
+practical_storage = LongTermStatisticalAnalysis(
     pin=4, 
     learning_days=14,          # 2 weeks detailed data
     summary_retention_days=90  # 3 months of hourly summaries
@@ -291,7 +291,7 @@ practical_storage = LongTermLearning(
 
 ## 🌐 Cloud Features (Optional)
 
-When using `simple_sensor_ml.py` with `enable_cloud_alerts=True`:
+When using `simple_dht.py` with `enable_cloud_alerts=True`:
 - **Real-time alerts** sent to Tendrl cloud platform
 - **Offline storage** when network is unavailable
 - **Multi-device management** from single interface
@@ -317,27 +317,29 @@ Requires `config.json` with your Tendrl credentials.
 **3. Memory errors:**
 ```python
 # Reduce window sizes for learning patterns
-learner = StatisticalLearning(pin=4, window_size=10)  # Smaller window
+analyzer = LongTermStatisticalAnalysis(pin=4, learning_days=7)  # Shorter period
 ```
 
 ## 📚 Learning Path
 
 ### Beginner (5 minutes):
-1. Try `create_indoor_sensor()` from `simple_sensor_ml.py`
+1. Try `create_indoor_sensor()` from `simple_dht.py`
 2. Adjust temperature ranges for your needs
 
 ### Intermediate (15 minutes):
-1. Explore `StatisticalLearning` from `ml_examples.py`
-2. Understand how MicroTetherDB enables the learning patterns
+1. Explore `LongTermStatisticalAnalysis` from `statistical_examples.py`
+2. Understand how MicroTetherDB enables the statistical analysis patterns
 
 ### Advanced (30 minutes):
-1. Try all 3 learning patterns in `ml_examples.py`
+1. Try all 3 statistical analysis patterns in `statistical_examples.py`
 2. Set up cloud integration with Tendrl
 3. Combine patterns for custom applications
 
 ## 🤝 Enhanced Data Analysis for Microcontrollers
 
 These examples demonstrate **statistical analysis patterns that were previously impractical** on microcontrollers due to storage and query limitations:
+
+-----
 
 ### 📱 **Target: Constrained Microcontrollers (NOT Full OS Devices)**
 
@@ -378,8 +380,64 @@ void store_reading(float temp) {
 - **Arrays**: Fixed size, RAM-only, lost on restart, no time queries
 - **EEPROM**: Tiny capacity (1-4KB), wear leveling issues, no indexing
 - **Flash Files**: Manual string parsing, no queries, linear search only
+- **JSON Files**: Seems easier but creates major problems (see example below)
 - **SD Cards**: Requires extra hardware, manual file management, no SQL
 - **Result**: Only basic data logging, NO sophisticated analysis possible
+
+**🚫 COMMON BUT PROBLEMATIC: JSON File Approach**
+
+```python
+# What many people try - seems simple but becomes VERY problematic
+import json
+
+def store_reading_json(temp, humidity):
+    # PROBLEM 1: Must read entire file into RAM every time!
+    try:
+        with open('sensor_data.json', 'r') as f:
+            data = json.load(f)  # Loads ENTIRE file - memory killer!
+    except:
+        data = []
+    
+    # PROBLEM 2: No TTL - file grows forever until device crashes
+    data.append({
+        'temp': temp,
+        'humidity': humidity, 
+        'timestamp': time.time()
+    })
+    
+    # PROBLEM 3: Rewrite entire file every time - VERY slow
+    with open('sensor_data.json', 'w') as f:
+        json.dump(data, f)  # Rewrites everything!
+
+def get_last_hour_readings():
+    # PROBLEM 4: Must load entire file and search linearly
+    with open('sensor_data.json', 'r') as f:
+        all_data = json.load(f)  # Entire file in RAM again!
+    
+    one_hour_ago = time.time() - 3600
+    recent = []
+    
+    # PROBLEM 5: No indexing - must check every record
+    for record in all_data:  # Linear search through thousands!
+        if record['timestamp'] >= one_hour_ago:
+            recent.append(record)
+    
+    return recent
+
+# RESULT: 
+# - After 1 week: 20MB+ JSON file, device crashes from RAM usage
+# - Queries take 10+ seconds as file grows  
+# - No automatic cleanup - manual housekeeping nightmare
+# - File corruption kills all historical data
+```
+
+**Why JSON Files Fail on Microcontrollers:**
+- **Memory exhaustion**: Must load entire file for any operation
+- **Performance degradation**: Linear search through thousands of records  
+- **No data management**: Files grow until device crashes
+- **Write amplification**: Rewriting entire file for each new record
+- **No atomic operations**: Power loss can corrupt entire dataset
+- **No time-series optimization**: Every query scans all data
 
 **✅ AFTER (MicroTetherDB on Constrained Microcontrollers):**
 
@@ -396,7 +454,7 @@ db.put({
     'day_of_week': 1
 }, ttl=30*24*3600)  # 30 days automatic cleanup
 
-# Complex queries that were IMPOSSIBLE on microcontrollers before:
+# Complex queries that were extremely difficult on microcontrollers before:
 last_week_2pm = db.query({
     'hour_of_day': 14,
     'timestamp': {'$gte': time.time() - 7*24*3600}
@@ -417,10 +475,6 @@ last_week_2pm = db.query({
 
 **The combination of MicroTetherDB's structured storage + query capabilities + Tendrl's cloud sync enables sophisticated data analysis on constrained microcontrollers that was previously only practical on full OS devices.**
 
-## 📄 License
-
-Same as parent project - see LICENSE file.
-
 ---
 
-**💡 Pro Tip**: Start with `simple_sensor_ml.py` for immediate results, then explore `ml_examples.py` to understand how MicroTetherDB enables learning patterns that would be impossible with traditional storage!
+**💡 Pro Tip**: Start with `simple_dht.py` for immediate results, then explore `statistical_examples.py` to understand how MicroTetherDB enables statistical analysis patterns that would be extremely difficult with traditional storage!

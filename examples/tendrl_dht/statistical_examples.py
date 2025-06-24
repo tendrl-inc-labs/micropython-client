@@ -20,8 +20,9 @@ on microcontrollers, which would be very difficult with traditional storage appr
 - Cloud sync with offline storage capability
 - Remote monitoring and data synchronization
 
-Note: These are statistical analysis patterns, not AI/ML in the enterprise sense.
-They enable basic trend detection and anomaly identification within microcontroller constraints.
+Note: These are statistical analysis patterns - threshold detection, trend analysis, 
+and adaptive statistics. They enable practical data analytics within microcontroller 
+constraints but are not machine learning in the algorithmic sense.
 """
 
 import time
@@ -50,11 +51,11 @@ except ImportError:
 
 
 # =============================================================================
-# PATTERN 1: LONG-TERM STATISTICAL LEARNING (~70 lines)
-# Impossible without persistent storage + efficient queries
+# PATTERN 1: LONG-TERM STATISTICAL ANALYSIS (~70 lines)
+# Extremely difficult without persistent storage + efficient queries
 # =============================================================================
 
-class LongTermLearning:
+class LongTermStatisticalAnalysis:
     """
     Analyze statistical patterns from weeks of persistent data.
     
@@ -67,7 +68,7 @@ class LongTermLearning:
         self.learning_days = learning_days
         
         # KEY INSIGHT: File storage for long-term learning
-        # This would be impossible with simple arrays or basic files
+        # This would be extremely difficult with simple arrays or basic files
         # 
         # SCALING: With boards like UM FeatherS3 (16MB flash + 8MB PSRAM):
         # - learning_days=90-180 (practical limit due to btree performance)
@@ -111,7 +112,7 @@ class LongTermLearning:
         now = time.time()
         
         # Store with long TTL - this is the KEY capability
-        # Traditional storage: Impossible to keep weeks of data efficiently
+        # Traditional storage: Extremely difficult to keep weeks of data efficiently
         ttl_seconds = self.learning_days * 24 * 3600  # Days to seconds
         
         reading_data = {
@@ -126,7 +127,7 @@ class LongTermLearning:
         self.db.put(reading_data, ttl=ttl_seconds)
         self.reading_count += 1
         
-        # Learn from historical patterns (impossible with traditional storage)
+        # Learn from historical patterns (extremely difficult with traditional storage)
         if self.reading_count >= 10:
             self._learn_long_term_patterns(temp, humidity, now)
             
@@ -229,11 +230,11 @@ class LongTermLearning:
 
 
 # =============================================================================
-# PATTERN 2: CLOUD-ENABLED TREND DETECTION (~60 lines)
-# Impossible without cloud sync + persistent storage
+# PATTERN 2: CLOUD-ENABLED TREND ANALYSIS (~60 lines)
+# Extremely difficult without cloud sync + persistent storage
 # =============================================================================
 
-class CloudTrendLearning:
+class CloudTrendAnalysis:
     """
     Detect trends locally AND sync to cloud for remote monitoring/control
     
@@ -365,11 +366,11 @@ class CloudTrendLearning:
 
 
 # =============================================================================
-# PATTERN 3: ADAPTIVE LEARNING WITH CLOUD FEEDBACK (~80 lines)
-# Impossible without bidirectional cloud communication + persistent storage
+# PATTERN 3: ADAPTIVE STATISTICS WITH CLOUD FEEDBACK (~80 lines)
+# Extremely difficult without bidirectional cloud communication + persistent storage
 # =============================================================================
 
-class CloudAdaptiveLearning:
+class CloudAdaptiveStatistics:
     """
     Learn locally, get cloud intelligence, adapt thresholds remotely
     
@@ -533,65 +534,65 @@ class CloudAdaptiveLearning:
 # USAGE EXAMPLES - Showcasing Unique Capabilities
 # =============================================================================
 
-def demo_long_term_learning():
-    """Demo: Long-term learning impossible with traditional storage"""
-    print("=== Long-Term Learning (30 days of data) ===")
-    print("Traditional storage: Impossible - limited to ~100 readings in RAM")
+def demo_long_term_analysis():
+    """Demo: Long-term statistical analysis extremely difficult with traditional storage"""
+    print("=== Long-Term Statistical Analysis (30 days of data) ===")
+    print("Traditional storage: Extremely difficult - limited to ~100 readings in RAM")
     print("MicroTetherDB: Weeks of data with efficient time-series queries")
     
-    learner = LongTermLearning(pin=4, learning_days=30)
+    analyzer = LongTermStatisticalAnalysis(pin=4, learning_days=30)
     
     # Simulate taking readings over time
     for i in range(50):
-        learner.take_reading()
+        analyzer.take_reading()
         if not HARDWARE:
             break
         time.sleep(2)
         
 def demo_cloud_trends():
-    """Demo: Cloud-synced trend detection with offline storage"""
-    print("=== Cloud Trend Detection ===")
+    """Demo: Cloud-synced trend analysis with offline storage"""
+    print("=== Cloud Trend Analysis ===")
     print("Traditional approach: Local only, no remote monitoring")
     print("MicroTetherDB + Tendrl: Bidirectional cloud intelligence")
     
-    learner = CloudTrendLearning(pin=4, sync_interval_minutes=5)
+    analyzer = CloudTrendAnalysis(pin=4, sync_interval_minutes=5)
     
     for i in range(30):
-        learner.take_reading()
+        analyzer.take_reading()
         if not HARDWARE:
             break
         time.sleep(3)
         
 def demo_cloud_adaptive():
-    """Demo: Cloud-enhanced adaptive learning"""
-    print("=== Cloud Adaptive Learning ===")
+    """Demo: Cloud-enhanced adaptive statistics"""
+    print("=== Cloud Adaptive Statistics ===")
     print("Traditional approach: Fixed thresholds, no remote updates")
     print("MicroTetherDB + Tendrl: Cloud-enhanced adaptive intelligence")
     
-    learner = CloudAdaptiveLearning(pin=4)
+    analyzer = CloudAdaptiveStatistics(pin=4)
     
     for i in range(100):
-        learner.take_reading()
+        analyzer.take_reading()
         if not HARDWARE:
             break
         time.sleep(1)
 
 
 if __name__ == "__main__":
-    print("🧠 MicroTetherDB + Tendrl: Impossible-Before ML Patterns")
+    print("📊 MicroTetherDB + Tendrl: Advanced Statistical Analysis Patterns")
     print()
-    print("These patterns demonstrate capabilities that were IMPOSSIBLE")
+    print("These patterns demonstrate statistical capabilities that were extremely difficult")
     print("with traditional microcontroller storage approaches:")
     print()
-    print("1. 📊 Long-term learning from weeks of persistent data")
-    print("2. ☁️ Cloud-synced intelligence with offline storage")  
-    print("3. 🎯 Adaptive learning with bidirectional cloud feedback")
+    print("1. 📊 Long-term statistical analysis from weeks of persistent data")
+    print("2. ☁️ Cloud-synced trend analysis with offline storage")  
+    print("3. 🎯 Adaptive statistics with bidirectional cloud feedback")
     print()
     
     if DB_AVAILABLE and CLOUD_AVAILABLE:
         print("✅ Full capabilities available!")
-        print("Uncomment demo functions to see impossible-before patterns:")
-        print("# demo_long_term_learning()")
+        print("Uncomment demo functions to see advanced statistical patterns:")
+        print("# demo_long_term_analysis()")
         print("# demo_cloud_trends()")
         print("# demo_cloud_adaptive()")
     elif DB_AVAILABLE:
