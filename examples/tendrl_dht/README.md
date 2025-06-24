@@ -26,10 +26,7 @@ sensor.start()  # That's it!
 - 📊 **Context analysis** with rolling windows
 - 💾 **Automatic data management** with TTL
 
-### 🧠 `ml_examples.py` - **Impossible-Before ML Patterns** 
-**Revolutionary capabilities** - Shows ML patterns that were IMPOSSIBLE with traditional microcontroller storage.
-
-Contains **3 breakthrough patterns:**
+### 🧠 `ml_examples.py` - **Example Patterns** 
 
 1. **`LongTermLearning`** - Learn from WEEKS of persistent data (~70 lines)
 2. **`CloudTrendLearning`** - Cloud-synced intelligence with offline storage (~60 lines)
@@ -51,21 +48,12 @@ adaptive = CloudAdaptiveLearning(pin=4)
 adaptive.take_reading()  # Cloud-enhanced adaptation
 ```
 
-**🚫 IMPOSSIBLE Without MicroTetherDB + Tendrl:**
-- Long-term learning (weeks/months of data)
-- Cloud sync with offline storage
-- Bidirectional cloud intelligence
-- Time-series queries over persistent data
-- Seasonal pattern recognition
-
 **✅ ENABLED by MicroTetherDB + Tendrl:**
 - **Weeks of persistent data**: File storage with efficient TTL cleanup
 - **Cloud intelligence**: Bidirectional sync with offline storage
 - **Advanced queries**: `{'hour_of_day': 14, 'timestamp': {'$gte': week_ago}}`
 - **25-167x faster** than traditional file storage
 - **Remote monitoring**: Cloud dashboards and alerts
-
-
 
 ## 🚀 Quick Start Guide
 
@@ -347,9 +335,9 @@ learner = StatisticalLearning(pin=4, window_size=10)  # Smaller window
 2. Set up cloud integration with Tendrl
 3. Combine patterns for custom applications
 
-## 🤝 Database Capabilities for MicroPython
+## 🤝 Enhanced Data Analysis for Microcontrollers
 
-These examples demonstrate **structured data analysis patterns** that were **impractical before** due to storage and query limitations on microcontrollers:
+These examples demonstrate **statistical analysis patterns that were previously impractical** on microcontrollers due to storage and query limitations:
 
 ### 📱 **Target: Constrained Microcontrollers (NOT Full OS Devices)**
 
@@ -432,7 +420,7 @@ last_week_2pm = db.query({
 - **Time-series analysis**: Efficient date/time range queries
 - **Dynamic sizing**: Grows/shrinks based on available storage
 
-**The combination of MicroTetherDB's structured storage + query capabilities + Tendrl's cloud sync makes database-driven IoT applications practical on constrained microcontrollers for the first time.**
+**The combination of MicroTetherDB's structured storage + query capabilities + Tendrl's cloud sync enables sophisticated data analysis on constrained microcontrollers that was previously only practical on full OS devices.**
 
 ## 📄 License
 

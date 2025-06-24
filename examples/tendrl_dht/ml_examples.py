@@ -2,8 +2,8 @@
 Statistical Analysis Patterns with MicroTetherDB + Tendrl
 ========================================================
 
-This demonstrates 3 data analysis patterns that MicroTetherDB + Tendrl make practical
-on microcontrollers, but would be impractical with traditional storage approaches.
+This demonstrates 3 data analysis patterns that MicroTetherDB + Tendrl enable
+on microcontrollers, which would be very difficult with traditional storage approaches.
 
 🚫 WITHOUT MicroTetherDB + Tendrl:
 - Simple arrays (limited size, lose data on restart)
@@ -141,7 +141,7 @@ class LongTermLearning:
         current_day = int((current_time / 86400) % 7)
         
         # PATTERN 1: Same time of day over weeks
-        # Traditional storage: Impractical - would need manual file parsing
+        # Traditional storage: Very difficult - would need complex manual file parsing
         same_time_data = self.db.query({
             'hour_of_day': current_hour,
             'timestamp': {'$gte': current_time - (7 * 24 * 3600)}  # Last week
@@ -156,8 +156,8 @@ class LongTermLearning:
                 print(f"📊 LONG-TERM ANOMALY: {current_temp}°C vs weekly avg {avg_temp:.1f}°C "
                       f"at hour {current_hour} (deviation: {deviation:.1f}°C)")
                 
-        # PATTERN 2: Day of week patterns
-        # Traditional storage: Very difficult to implement efficiently
+        # PATTERN 2: Day of week patterns  
+        # Traditional storage: Challenging to implement efficiently
         same_day_data = self.db.query({
             'day_of_week': current_day,
             'timestamp': {'$gte': current_time - (30 * 24 * 3600)}  # Last month
@@ -272,13 +272,7 @@ class CloudTrendLearning:
         else:
             self.cloud_enabled = False
         
-    @property  
-    def tether_decorator(self):
-        """Expose tether decorator for cloud-synced functions"""
-        if self.cloud_enabled:
-            return self.client.tether
-        else:
-            return lambda **kwargs: lambda func: func  # No-op decorator
+
     
     def take_reading(self):
         """Take reading with cloud sync"""
@@ -355,18 +349,15 @@ class CloudTrendLearning:
                 }
             }
             
-            # Use tether decorator for automatic cloud sync
-            @self.tether_decorator(
-                tags=['trend_analysis', 'iot_ml'],
+            # Direct publish with offline storage
+            self.client.publish(
+                data=sync_data,
+                tags=['trend_analysis', 'iot_analysis'],
                 entity='dht_trend_detector',
                 write_offline=True,
                 db_ttl=14*24*3600  # 2 weeks offline storage
             )
-            def send_trend_data():
-                return sync_data
             
-            # Execute the tethered function
-            send_trend_data()
             print(f"☁️ Synced trend data to cloud")
             
         except Exception as e:
@@ -413,6 +404,28 @@ class CloudAdaptiveLearning:
                 self.client.start()
                 self.cloud_enabled = True
                 print("☁️ Cloud adaptive learning enabled")
+                
+                # Example of correct tether decorator usage:
+                # 1. Decorate a function that returns a dict
+                # 2. The decorator handles publishing automatically
+                # 3. Supports offline storage when network is unavailable
+                @self.client.tether(
+                    write_offline=True,
+                    db_ttl=30*24*3600,  # 30 days
+                    tags=['system_status', 'initialization'],
+                    entity='adaptive_learner_status'
+                )
+                def send_initialization_status():
+                    return {
+                        'status': 'initialized',
+                        'learning_enabled': True,
+                        'temp_range': self.learned_temp_range,
+                        'timestamp': time.time()
+                    }
+                
+                # Call the tethered function to send initialization status
+                send_initialization_status()
+                
             except:
                 self.cloud_enabled = False
         else:
