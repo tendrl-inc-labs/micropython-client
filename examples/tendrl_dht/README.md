@@ -93,7 +93,7 @@ analyzer.take_reading()
 **Specific Tendrl Client features demonstrated:**
 - **Offline-first publishing** - `client.publish(data, write_offline=True)`
 - **Automatic retry and reconnection** - Built-in network resilience
-- **Remote monitoring** - Cloud dashboard automatically created
+- **Cloud data publishing** - Sends sensor data to Tendrl platform
 - **Production-ready error handling** - No manual HTTP/WiFi management needed
 
 ## 🔧 Configuration Options
@@ -149,7 +149,7 @@ client.publish(sensor_data, write_offline=True)
 Add `enable_cloud_alerts=True` for:
 - Real-time alerts to Tendrl platform
 - Offline storage when network fails
-- Remote monitoring dashboard
+- Data publishing to cloud for remote monitoring
 
 *Requires `config.json` with Tendrl credentials*
 
