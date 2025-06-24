@@ -477,22 +477,26 @@ Uses a fixed flush threshold of 10 operations regardless of storage type or usag
 #### When to Use Each Setting
 
 **Enable Adaptive Threshold (Recommended):**
+
 ```python
 db = MicroTetherDB(
     adaptive_threshold=True  # Default - automatically optimizes
 )
 ```
+
 - **Default choice** for most applications
 - **Variable workloads** with changing operation patterns
 - **Mixed storage types** (switching between memory/file)
 - **Production applications** where you want optimal performance
 
 **Disable Adaptive Threshold:**
+
 ```python
 db = MicroTetherDB(
     adaptive_threshold=False  # Fixed threshold of 10 operations
 )
 ```
+
 - **Predictable flush behavior** needed for testing
 - **Consistent timing requirements** for benchmarking
 - **Simple applications** with steady operation patterns

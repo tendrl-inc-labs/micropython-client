@@ -84,7 +84,7 @@ class SimpleDHTSensor:
 
         # Configure database based on data window
         self._configure_database()
-        
+
         # Initialize cloud client if enabled
         self.client = None
         if self.enable_cloud_alerts:
@@ -135,7 +135,7 @@ class SimpleDHTSensor:
             print("⚠️ Tendrl client not available - cloud alerts disabled")
             self.enable_cloud_alerts = False
             return
-            
+
         try:
             self.client = Client(
                 debug=False,  # Keep quiet for production use
@@ -216,7 +216,7 @@ class SimpleDHTSensor:
         elif size > 100:
             size = 100
             print("Warning: Window size too large, setting to maximum of 100")
-        
+
         self.window_size = size
         print(f"Context window size set to {size} readings")
 
@@ -387,7 +387,7 @@ class SimpleDHTSensor:
         temp_display = self._convert_temp_display(temp)
         unit_symbol = 'F' if self.temp_unit == 'F' else 'C'
         print(f"🚨 ANOMALY DETECTED: {temp_display:.1f}°{unit_symbol}, {humidity}% - {reason}")
-        
+
         # Send to cloud if enabled
         if self.enable_cloud_alerts and self.client and self.client.client_enabled:
             self._send_cloud_alert(temp, humidity, reason)
@@ -397,7 +397,7 @@ class SimpleDHTSensor:
         try:
             temp_display = self._convert_temp_display(temp)
             unit_symbol = 'F' if self.temp_unit == 'F' else 'C'
-            
+
             # Create alert data with context
             alert_data = {
                 'alert_type': 'sensor_anomaly',
@@ -413,7 +413,7 @@ class SimpleDHTSensor:
                 'data_window_hours': self.data_window_hours,
                 'analysis_window_size': self.window_size
             }
-            
+
             # Add ML context if available
             recent_readings = self._get_recent_readings(min(10, self.window_size))
             if len(recent_readings) >= 3:
@@ -425,7 +425,7 @@ class SimpleDHTSensor:
                     'temp_deviation': round(abs(temp_display - sum(temps) / len(temps)), 1),
                     'humidity_deviation': round(abs(humidity - sum(humidities) / len(humidities)), 1)
                 })
-            
+
             # Send to cloud with offline storage
             self.client.publish(
                 data=alert_data,
@@ -434,7 +434,7 @@ class SimpleDHTSensor:
                 write_offline=True,  # Store offline if network fails
                 db_ttl=7*24*3600  # Keep offline alerts for 1 week
             )
-            
+
         except Exception as e:
             print(f"⚠️ Cloud alert failed: {e}")
 
@@ -485,7 +485,7 @@ class SimpleDHTSensor:
 
 
 # Convenience functions for even simpler usage
-def create_indoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=5, window_size=20, 
+def create_indoor_sensor(pin, alert_callback=None, temp_unit='C', data_window_hours=24, alert_cooldown_minutes=5, window_size=20,
                         enable_cloud_alerts=False, device_name=None, location=None):
     """Create sensor configured for indoor monitoring (20-26°C/68-79°F, 40-60% humidity)"""
     sensor = SimpleDHTSensor(pin, 'DHT22', alert_callback, temp_unit, data_window_hours, alert_cooldown_minutes, window_size,

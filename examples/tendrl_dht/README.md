@@ -1,4 +1,5 @@
 # DHT Sensor Examples
+
 ## Statistical Analysis for Environmental Monitoring with MicroTetherDB
 
 ## 🚀 **2-Minute Quick Start - See the Power Immediately**
@@ -18,6 +19,7 @@ sensor.start()  # Done!
 ```
 
 **🎯 What you just got:**
+
 - **Persistent B-tree storage** (data survives restarts vs. lost arrays)
 - **Smart anomaly detection** (rolling averages + context vs. basic thresholds)
 - **Automatic memory cleanup** (TTL management vs. manual array handling)
@@ -36,12 +38,14 @@ sensor.start()  # Done!
 ## 🚀 **Database & Cloud Sophistication on Microcontrollers**
 
 **❌ Arduino/C approach:**
+
 ```c
 // Fixed arrays - no persistence, no queries
 float readings[100];  // Lost on restart, linear search only
 ```
 
 **⚠️ Basic MicroPython approach:**
+
 ```python
 # Simple lists - better than C but still limited
 readings = []  # Lost on restart, memory limited
@@ -50,6 +54,7 @@ with open('data.txt', 'a') as f:
 ```
 
 **✅ MicroTetherDB + Tendrl brings enterprise-grade capabilities:**
+
 ```python
 # MongoDB-style queries with automatic indexing
 recent_data = db.query({
@@ -73,6 +78,7 @@ client.publish(sensor_data, write_offline=True)
 | **Network Handling** | Manual connection mgmt | Manual retry loops | **WebSocket with auto-reconnect** |
 
 **🚫 Common IoT Pain Points We Solve:**
+
 - **Memory leaks from growing arrays** → Automatic TTL cleanup with B-tree indexing
 - **Lost data on restart/power cycle** → Persistent B-tree storage survives reboots  
 - **Network failures crash system** → Offline-first with automatic reconnection
@@ -124,38 +130,41 @@ sensor = SimpleDHTSensor(pin=4, enable_cloud_alerts=True)
 
 ## 💾 Hardware Requirements
 
-**Minimum:** ESP32 + DHT22 sensor 
+**Minimum:** ESP32 + DHT22 sensor
 **Recommended:** ESP32 with 2+MB RAM for advanced patterns  
 **Advanced:** Boards like FeatherS3 (16MB flash + 8MB PSRAM) for months of data
 
 ## ☁️ Cloud Features (Optional)
 
 Add `enable_cloud_alerts=True` for:
+
 - Real-time alerts to Tendrl platform
 - Offline storage when network fails
 - Data publishing to cloud for remote monitoring
 
 *Requires `config.json` with Tendrl credentials*
 
-
-
 ## 🔍 Troubleshooting
 
-### Quick Fixes for Common Issues:
+### Quick Fixes for Common Issues
 
 **❓ Getting "MicroTetherDB not available" message?**
+
 - ✅ **This is normal!** Examples work in demo mode without the full database
 - 📦 **Want full features?** Install MicroTetherDB for persistent storage
 
-**❓ Getting "Timer not available" message?**  
+**❓ Getting "Timer not available" message?**
+
 - ✅ **This is normal!** Running without hardware for development/testing
 - 📦 **On real hardware?** Examples automatically detect and use timers
 
 **❓ Getting memory errors?**
+
 - 📦 **Easy fix:** Use shorter data windows: `data_window_hours=24` instead of `720`
 - 📦 **For advanced patterns:** Use `learning_days=7` instead of `30`
 
 **❓ Sensor not working?**
+
 - 📦 **Check wiring:** DHT22 data pin to GPIO, VCC to 3.3V, GND to GND
 - 📦 **Try different pin:** `create_indoor_sensor(pin=5)` if pin 4 doesn't work
 
@@ -164,6 +173,7 @@ Add `enable_cloud_alerts=True` for:
 **Just want it to work?** Use the 2-minute quick start above.
 
 **Want to explore more?**
+
 - Try different environments: `create_greenhouse_sensor()`, `create_outdoor_sensor()`
 - Add cloud alerts: `enable_cloud_alerts=True`
 - Advanced patterns: See `statistical_examples.py` for weeks of data analysis
