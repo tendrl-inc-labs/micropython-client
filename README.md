@@ -1,4 +1,4 @@
-# Tendrl MicroPython SDK
+# Tendrl MicroPython Client
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/tendrl-inc/clients/nano_agent)
 ![MicroPython](https://img.shields.io/badge/MicroPython-1.15%2B-blue) ![License](https://img.shields.io/badge/License-Proprietary-red)
@@ -243,8 +243,6 @@ Best for:
 - Systems that need automatic WiFi management
 - Long-running applications
 
-
-
 ```python
 from tendrl import Client
 
@@ -397,6 +395,56 @@ client.publish(
 - Messages are sent directly without queuing
 - No offline storage is available
 - No WiFi management is performed
+
+## Message Callbacks
+
+```python
+# Set up callback to handle incoming messages
+def message_handler(message):
+    # Process incoming message
+    print(f"Received: {message['msg_type']} from {message['source']}")
+    return 0  # Return non-zero if processing fails
+
+# Initialize client with callback
+client = Client(callback=message_handler)
+
+# Or set callback after initialization
+client.set_message_callback(message_handler)
+
+# Configure checking behavior (optional)
+client.set_message_check_rate(5)   # Check every 5 seconds (default: 5)
+client.set_message_check_limit(10) # Max messages per check (default: 1)
+
+# Manual message check (works in any mode)
+messages = client.check_messages()
+```
+
+### IncomingMessage Structure
+
+| Field | Type | Description | Required |
+|-------|------|-------------|----------|
+| `msg_type` | `str` | Message type identifier (e.g., "command", "notification", "alert") | ✅ Yes |
+| `source` | `str` | Sender's resource path (set by server) | ✅ Yes |
+| `dest` | `str` | Destination entity identifier | ❌ Optional |
+| `timestamp` | `str` | RFC3339 timestamp (set by server) | ✅ Yes |
+| `data` | `dict/list/any` | The actual message payload (can be any JSON type) | ✅ Yes |
+| `context` | `dict` | Message metadata | ❌ Optional |
+| `request_id` | `str` | Request identifier (if message was a request) | ❌ Optional |
+
+### Message Context Structure
+
+| Field | Type | Description | Required |
+|-------|------|-------------|----------|
+| `tags` | `list` | Message tags for categorization | ❌ Optional |
+| `dynamicActions` | `dict` | Server-side validation results | ❌ Optional |
+
+#### How It Works
+
+1. **Background Checking**: In managed mode, the SDK automatically checks for messages every 5 seconds (configurable)
+2. **Manual Checking**: You can call `check_messages()` manually in any mode
+3. **Callback Execution**: Your callback function is called for each incoming message
+4. **Error Handling**: Failed callbacks don't stop other message processing
+5. **Connectivity Aware**: Automatically handles network failures and updates connectivity state
 
 ## Asynchronous Mode
 
@@ -669,8 +717,6 @@ exec(open("install_script.py").read())
 
 - `INSTALL_DB = True` → Full installation with MicroTetherDB (default)
 - `INSTALL_DB = False` → Minimal installation without database (saves ~50KB)
-
-## Quick Start
 
 ### With Database (Full Installation)
 

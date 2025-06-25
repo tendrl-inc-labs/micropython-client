@@ -69,28 +69,20 @@ class MicroTetherDB:
 
     def _is_async_context(self):
         """Check if we're in an async context"""
-        try:
-            asyncio.get_running_loop()
-            return True
-        except RuntimeError:
-            return False
+        # For MicroPython compatibility, we'll be conservative and assume
+        # no async context unless explicitly provided an event loop
+        return self._loop_provided
 
     def _get_or_create_loop(self):
-        """Safely get or create an event loop"""
+        """Safely get or create an event loop - MicroPython compatible"""
         if self._loop is not None:
             return self._loop
 
         try:
-            # Try to get the running loop first
-            self._loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # No running loop, try to get the event loop
-            try:
-                self._loop = asyncio.get_event_loop()
-            except RuntimeError:
-                # Create a new loop if none exists
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
+            # In MicroPython, get_event_loop() is the standard way
+            self._loop = asyncio.get_event_loop()
+        except Exception as e:
+            raise RuntimeError(f"Unable to get event loop: {e}")
 
         return self._loop
 
