@@ -24,8 +24,8 @@ class WSHandler:
             return False
         app_url = (
             self.config.get("app_url", "")
-            .replace("http://", "")
-            .replace("https://", "")
+            .replace("http://", "ws://")
+            .replace("https://", "wss://")
         )
         if not app_url:
             print("Missing app_url in configuration")
@@ -34,8 +34,7 @@ class WSHandler:
         if not api_key:
             print("Missing API key in configuration")
             return False
-        scheme = "wss" if app_url.startswith("https") else "ws"
-        ws_url = f"{scheme}://{app_url}/api/entities/ws/{jti}?e_type={e_type}"
+        ws_url = f"{app_url}/api/entities/ws/{jti}?e_type={e_type}"
         self._last_jti = jti
         self._last_e_type = e_type
         try:
@@ -144,6 +143,7 @@ class WSHandler:
         with self._ws_lock:
             try:
                 encoded_msg = json.dumps(msg).encode("utf-8")
+                print(f"[WSHandler] Sending message: {encoded_msg}")
             except Exception as encode_err:
                 print(f"Encoding error: {encode_err}")
                 return {"code": 400, "content": f"Encoding error: {str(encode_err)}"}
@@ -153,16 +153,26 @@ class WSHandler:
                 return {"code": 413, "content": error_msg}
             try:
                 self._ws.send(encoded_msg)
+                print("[WSHandler] Message sent, waiting for response...")
                 time.sleep(0.02)
                 try:
                     response = self._ws.recv()
+                    print(f"[WSHandler] Received response: {response}")
+                    if response == "":
+                        # No data available, treat as non-fatal (wait for next message)
+                        return {"code": 204, "content": "No response data (empty frame)"}
                     try:
                         parsed_response = json.loads(response)
                         return parsed_response
                     except Exception:
+                        print(f"[WSHandler] Invalid response format: {response}")
                         return {"code": 500, "content": "Invalid response format"}
                 except Exception as recv_err:
-                    print(f"Response receive error: {recv_err}")
+                    # Only treat as error if not NoDataException
+                    if hasattr(recv_err, '__class__') and recv_err.__class__.__name__ == 'NoDataException':
+                        print("No data available after send, not closing connection.")
+                        return {"code": 204, "content": "No response data (NoDataException)"}
+                    print(f"[WSHandler] Response receive error: {recv_err}")
                     # Attempt to resend with one retry
                     if max_retries > 0:
                         return self.send_message(msg, max_retries - 1)
@@ -179,7 +189,7 @@ class WSHandler:
                     return self.send_message(msg, max_retries - 1)
                 return {"code": 500, "content": f"Connection error: {str(conn_err)}"}
             except Exception as send_err:
-                print(f"Error details: {str(send_err)}")
+                print(f"[WSHandler] Error details: {str(send_err)}")
                 self.connected = False
                 if max_retries > 0:
                     return self.send_message(msg, max_retries - 1)
@@ -228,6 +238,7 @@ class WSHandler:
                 for chunk_index, chunk in enumerate(chunks, 1):
                     try:
                         encoded_chunk = json.dumps(chunk).encode("utf-8")
+                        print(f"[WSHandler] Sending batch chunk {chunk_index}: {encoded_chunk}")
                         if len(encoded_chunk) > self._max_batch_size:
                             chunk_responses = []
                             for msg in chunk:
@@ -248,8 +259,10 @@ class WSHandler:
                             all_responses.extend(chunk_responses)
                             continue
                         self._ws.send(encoded_chunk)
+                        print(f"[WSHandler] Batch chunk {chunk_index} sent, waiting for response...")
                         try:
                             response = self._ws.recv()
+                            print(f"[WSHandler] Received batch response: {response}")
                             resp_data = json.loads(response)
                             if isinstance(resp_data, dict):
                                 code = resp_data.get("code")
@@ -264,16 +277,19 @@ class WSHandler:
                         except Exception as recv_err:
                             self._consecutive_errors += 1
                             self.connected = False
+                            print(f"[WSHandler] Batch response receive error: {recv_err}")
                             return {"code": 500, "content": str(recv_err)}
-                    except Exception:
+                    except Exception as send_err:
                         self._consecutive_errors += 1
                         self.connected = False
+                        print(f"[WSHandler] Error sending batch chunk {chunk_index}: {send_err}")
                         chunk_responses = []
                         for msg in chunk:
                             try:
                                 msg_response = self.send_message(msg)
                                 chunk_responses.append(msg_response)
                             except Exception as individual_send_err:
+                                print(f"Error sending individual message: {individual_send_err}")
                                 chunk_responses.append(
                                     {
                                         "code": 500,
@@ -297,6 +313,7 @@ class WSHandler:
         except Exception as overall_err:
             self._consecutive_errors += 1
             self.connected = False
+            print(f"[WSHandler] Overall batch send error: {overall_err}")
             return {"code": 500, "content": str(overall_err)}
 
     def check_messages(self):
@@ -310,3 +327,5 @@ class WSHandler:
                 pass
             self._ws = None
             self.connected = False
+
+
