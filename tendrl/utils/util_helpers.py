@@ -315,8 +315,7 @@ def safe_storage_operation(storage, operation, *args, **kwargs):
             return storage.cleanup()
         method = getattr(storage, operation)
         result = method(*args, **kwargs)
-        if result is not None:
-            print(f"Storage operation '{operation}' successful. Result: {result}")
+
         return result
     except AttributeError as e:
         print(f"CRITICAL: Storage method '{operation}' not found: {e}")
