@@ -61,7 +61,7 @@ WIFI_RETRY_DELAY = 5  # seconds
 INSTALL_RETRY_DELAY = 10  # seconds
 
 # Configuration - Modify this before running the script
-INSTALL_DB = True  # Set to False for minimal installation (saves ~50KB)
+INSTALL_DB = False  # Set to False for minimal installation (saves ~50KB)
 
 # Print installation type
 if INSTALL_DB:
@@ -179,7 +179,6 @@ def verify_installation():
             "/lib/tendrl/lib/websockets.py",
             "/lib/tendrl/utils/__init__.py",
             "/lib/tendrl/utils/auth.py",
-            "/lib/tendrl/utils/memory.py",
             "/lib/tendrl/utils/util_helpers.py",
             "/lib/tendrl/manifest.py",
             "/lib/tendrl/config.json"
