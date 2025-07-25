@@ -18,7 +18,6 @@ except ImportError:
     ASYNCIO_AVAILABLE = False
 try:
     import btree
-    from tendrl.lib.microtetherdb.db import MicroTetherDB
     BTREE_AVAILABLE = True
 except ImportError:
     BTREE_AVAILABLE = False
@@ -132,14 +131,21 @@ class Client:
                 # Main storage database (for offline message storage)
                 # Only create if offline_storage is enabled
                 if offline_storage:
-                    self._db = MicroTetherDB(
-                        filename="/lib/tendrl/tether.db",
-                        in_memory=False,
-                        btree_pagesize=db_page_size,
-                        event_loop=database_event_loop
-                    )
-                    if debug:
-                        print("✅ Offline storage database initialized")
+                    try:
+                        # Lazy import to save RAM on devices that may not use the DB
+                        from tendrl.lib.microtetherdb.db import MicroTetherDB
+                        self._db = MicroTetherDB(
+                            filename="/lib/tendrl/tether.db",
+                            in_memory=False,
+                            btree_pagesize=db_page_size,
+                            event_loop=database_event_loop
+                        )
+                        if debug:
+                            print("✅ Offline storage database initialized")
+                    except ImportError:
+                        self._db = None
+                        if debug:
+                            print("⚠️ MicroTetherDB not available - offline storage disabled")
                 else:
                     self._db = None
                     if debug:
@@ -147,16 +153,23 @@ class Client:
                 # Client database (configurable storage mode)
                 # Only create if client_db is enabled
                 if client_db:
-                    self._client_db = MicroTetherDB(
-                        filename="/lib/tendrl/client_db.db",
-                        in_memory=client_db_in_memory,
-                        btree_pagesize=1024,
-                        ram_percentage=10,
-                        event_loop=database_event_loop
-                    )
-                    storage_type = "in-memory" if client_db_in_memory else "file-based"
-                    if debug:
-                        print(f"✅ Client database initialized ({storage_type})")
+                    try:
+                        # Lazy import to save RAM on devices that may not use the DB
+                        from tendrl.lib.microtetherdb.db import MicroTetherDB
+                        self._client_db = MicroTetherDB(
+                            filename="/lib/tendrl/client_db.db",
+                            in_memory=client_db_in_memory,
+                            btree_pagesize=1024,
+                            ram_percentage=10,
+                            event_loop=database_event_loop
+                        )
+                        storage_type = "in-memory" if client_db_in_memory else "file-based"
+                        if debug:
+                            print(f"✅ Client database initialized ({storage_type})")
+                    except ImportError:
+                        self._client_db = None
+                        if debug:
+                            print("⚠️ MicroTetherDB not available - client database disabled")
                 else:
                     self._client_db = None
                     if debug:
@@ -867,7 +880,10 @@ class Client:
     # ===== CLIENT DATABASE =====
     def db_put(self, data, ttl=0, tags=None):
         if not self.client_db:
-            if not BTREE_AVAILABLE:
+            try:
+                # Lazy import to save RAM on devices that may not use the DB
+                from tendrl.lib.microtetherdb.db import MicroTetherDB
+            except ImportError:
                 raise DBError("Client database not available - install full package with MicroTetherDB")
             else:
                 raise DBError("Client database disabled - set client_db=True in constructor")
