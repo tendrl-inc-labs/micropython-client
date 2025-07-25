@@ -8,7 +8,6 @@ import time
 import cryptolib
 import network
 
-from .memory import get_baseline_alloc
 
 def iso8601(timestamp=None):
     if timestamp is None:
@@ -200,26 +199,33 @@ def t_convert(t):
 
 
 def free(bytes_only=False):
-    mem_alloc = gc.mem_alloc()
+    gc.collect()
+
     mem_free = gc.mem_free()
-    app_alloc = max(mem_alloc - get_baseline_alloc(), 0)
+    mem_used = gc.mem_alloc()
+    mem_total = mem_free + mem_used
     fs_stat = os.statvfs("/")
-    fs_size = fs_stat[0] * fs_stat[2]
-    fs_free = fs_stat[0] * fs_stat[3]
+    block_size = fs_stat[0]
+    total_blocks = fs_stat[2]
+    free_blocks = fs_stat[3]
+    fs_size = block_size * total_blocks
+    fs_free = block_size * free_blocks
+
     if bytes_only:
         return {
             "mem_free": mem_free,
-            "mem_alloc": app_alloc,
+            "mem_alloc": mem_total,
             "disk_free": fs_free,
             "disk_size": fs_size,
         }
     else:
         return {
             "mem_free": convert(mem_free),
-            "mem_alloc": convert(app_alloc),
+            "mem_alloc": convert(mem_total),
             "disk_free": convert(fs_free),
             "disk_size": convert(fs_size),
         }
+
 
 def gen_key():
     return binascii.hexlify(os.urandom(16))
