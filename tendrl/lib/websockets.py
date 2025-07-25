@@ -327,7 +327,10 @@ def connect(uri, api_key):
         send_header(b"Upgrade: websocket")
         send_header(b"Sec-WebSocket-Key: %s", key)
         send_header(b"Sec-WebSocket-Version: 13")
-        send_header(b"Origin: %s://%s", uri.protocol.encode(), uri.hostname.encode())
+        if uri.protocol == "wss":
+            send_header(b"Origin: https://%s", uri.hostname.encode())
+        else:
+            send_header(b"Origin: http://%s", uri.hostname.encode())
         send_header(b"")
         try:
             header = sock.readline()[:-2]
@@ -374,4 +377,5 @@ def connect(uri, api_key):
         print(f"Unexpected WebSocket connection error: {e}")
         sock.close()
         raise ConnectionError(f"WebSocket connection failed: {e}")
+
 
