@@ -152,6 +152,7 @@ class Client:
                         filename="/lib/tendrl/client_db.db",
                         in_memory=client_db_in_memory,
                         btree_pagesize=1024,
+                        ram_percentage=10,
                         event_loop=database_event_loop
                     )
                     storage_type = "in-memory" if client_db_in_memory else "file-based"

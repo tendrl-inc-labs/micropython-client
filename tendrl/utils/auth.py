@@ -1,3 +1,4 @@
+import gc
 import time
 
 import requests
@@ -5,10 +6,11 @@ import requests
 
 def get_claims(url_path, token):
     try:
+        gc.collect()
         resp = requests.get(
             f"{url_path}/api/claims",
             headers={"Authorization": f"Bearer {token}"},
-            timeout=10,
+            timeout=3,
         )
         if resp.status_code == 200:
             try:
