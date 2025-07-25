@@ -30,7 +30,6 @@
         "tendrl/lib/microtetherdb/core/utils.py",
         "tendrl/utils/__init__.py",
         "tendrl/utils/auth.py",
-        "tendrl/utils/memory.py",
         "tendrl/utils/util_helpers.py",
         "tendrl/manifest.py"
     ],
@@ -60,7 +59,6 @@
         ["tendrl/lib/microtetherdb/core/utils.py", "github:tendrl-inc-labs/micropython-client/tendrl/lib/microtetherdb/core/utils.py"],
         ["tendrl/utils/__init__.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/__init__.py"],
         ["tendrl/utils/auth.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/auth.py"],
-        ["tendrl/utils/memory.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/memory.py"],
         ["tendrl/utils/util_helpers.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/util_helpers.py"],
         ["tendrl/manifest.py", "github:tendrl-inc-labs/micropython-client/tendrl/manifest.py"]
     ]

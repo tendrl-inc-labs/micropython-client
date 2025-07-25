@@ -3,7 +3,6 @@ import sys
 import time
 import gc
 
-from .utils.memory import init_baseline_alloc
 
 try:
     import machine
@@ -152,6 +151,7 @@ class Client:
                         filename="/lib/tendrl/client_db.db",
                         in_memory=client_db_in_memory,
                         btree_pagesize=1024,
+                        ram_percentage=10,
                         event_loop=database_event_loop
                     )
                     storage_type = "in-memory" if client_db_in_memory else "file-based"
@@ -640,7 +640,6 @@ class Client:
             self._connect()
             if MACHINE_AVAILABLE and self._timer_id <= 3:
                 self._app_timer = machine.Timer(self._timer_id)
-                init_baseline_alloc()
                 self._app_timer.init(
                     mode=machine.Timer.PERIODIC,
                     freq=self._timer_freq,
@@ -652,7 +651,6 @@ class Client:
             self._connect()
             self._stop_event.clear()
             self._tasks = []
-            init_baseline_alloc()
             try:
                 # Check if we're in an async context or have a user-provided loop
                 if self._user_event_loop:

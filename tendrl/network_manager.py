@@ -41,6 +41,7 @@ class NetworkManager:
                 return claims.get("jti")
             if self.debug:
                 print("Authentication failed")
+                print(claims.get('error'))
             return None
         except Exception as e:
             if self.debug:

@@ -146,12 +146,10 @@ class MicroTetherDB:
 
                     # TTL expiry checks
                     if self._ttl_manager.should_check_ttl(self.ttl_check_interval):
-                        deleted = await self._ttl_manager.check_expiry(
+                        await self._ttl_manager.check_expiry(
                             self._db,
                             lambda: self._db.flush()
                         )
-                        if deleted > 0:
-                            print(f"TTL cleanup: removed {deleted} expired items")
 
                     if not self._queue:
                         await asyncio.sleep(0.01)
@@ -508,3 +506,43 @@ class MicroTetherDB:
     def _flush_counter(self):
         """Backward compatibility property"""
         return self._flush_manager.flush_counter
+
+    def cleanup(self):
+        """
+        Remove expired TTL entries and flush the database if needed.
+        Returns the number of items cleaned up.
+        """
+        # Synchronous TTL cleanup
+        try:
+            # Call the async TTL check synchronously (MicroPython compatible)
+            deleted = 0
+            # The TTLManager's check_expiry is async, but we can run it synchronously for now
+            # (since the worker is not running in sync context)
+            coro = self._ttl_manager.check_expiry(self._db, self._db.flush)
+            if hasattr(coro, '__await__'):
+                # Run the coroutine synchronously
+                try:
+                    import uasyncio as asyncio
+                except ImportError:
+                    import asyncio
+                loop = None
+                try:
+                    loop = asyncio.get_event_loop()
+                except Exception:
+                    pass
+                if loop:
+                    deleted = loop.run_until_complete(coro)
+                else:
+                    # Fallback: run the coroutine to completion using generator protocol
+                    try:
+                        while True:
+                            coro.send(None)
+                    except StopIteration as e:
+                        deleted = e.value if hasattr(e, 'value') else 0
+            else:
+                # If not a coroutine, just call it
+                deleted = coro
+            return deleted
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+            return 0
