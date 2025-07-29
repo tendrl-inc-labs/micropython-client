@@ -363,6 +363,7 @@ The client uses two configuration files:
 2. **User Config** (`/config.json`): Your credentials and cached data
 
 User config structure:
+
 ```json
 {
     "api_key": "your_api_key",
@@ -440,7 +441,8 @@ The SDK supports various message types:
 ### Topic Structure
 
 Messages are published to topics following this structure:
-```
+
+```sh
 <account>/<region>/<jti>/<action>
 ```
 
