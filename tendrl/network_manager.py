@@ -22,14 +22,14 @@ class NetworkManager:
                         print("Failed to establish network connection")
                     return None
                 try:
-                    ntp_time()  # Attempt time synchronization
+                    ntp_time()
                 except Exception as ntp_err:
                     print(f"NTP time sync failed: {ntp_err}")
 
-            # Get authentication claims regardless of mode
             claims = get_claims(
                 self.config.get("app_url"),
-                self.config.get("api_key")
+                self.config.get("api_key"),
+                self.config.get("e_type")
             )
             if claims is None:
                 if self.debug:
@@ -50,7 +50,7 @@ class NetworkManager:
 
     def is_connected(self):
         if self.headless:
-            return True  # In headless mode, we assume network is available
+            return True
         return self._station and self._station.isconnected()
 
     def cleanup(self):

@@ -37,15 +37,13 @@ class QueueManager:
     def process_batch(self):
         if self.is_processing:
             if self.debug:
-                print("Already processing") #TODO: Remove
+                print("Already processing")
             return None
         if not self.queue:
             return None
         self.is_processing = True
         try:
-            # Calculate max messages based on memory
             max_messages = min(round((gc.mem_free() / 1000) * 3), self.max_batch_size)
-            # Collect all messages up to max_messages
             batch = []
             while len(self.queue) > 0 and len(batch) < max_messages:
                 msg = next(self.queue)
@@ -53,7 +51,7 @@ class QueueManager:
                     batch.append(msg)
             if batch:
                 if self.debug:
-                    print(f"Collected {len(batch)} messages, queue size: {len(self.queue)}") #TODO: Remove
+                    print(f"Collected {len(batch)} messages, queue size: {len(self.queue)}")
                 gc.collect()
                 return batch
             return None

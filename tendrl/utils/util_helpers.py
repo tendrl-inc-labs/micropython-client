@@ -39,7 +39,6 @@ def make_message(
     tags=None,
     entity="",
     timestamp=None,
-    wait_response=False,
 ):
     if not isinstance(data, (str, dict)):
         raise TypeError("Allowed types: ['str', 'dict']")
@@ -49,8 +48,6 @@ def make_message(
         if not all(isinstance(i, str) for i in tags):
             raise TypeError("tags must be of type 'str'")
     context = {"tags": tags} if tags else {}
-    if wait_response and not entity:
-        context["wait"] = True
     m = {
         "msg_type": msg_type,
         "data": data,
@@ -116,7 +113,6 @@ def starmap(function, iterable):
 
 
 def ntp_time(retry=0):
-    # could I save in the database a key/value of ntp time and time.time()?
     if retry < 4:
         try:
             import ntptime
@@ -231,7 +227,7 @@ def gen_key():
     return binascii.hexlify(os.urandom(16))
 
 
-def encrypt_str(data, key):  # key = gen_key()
+def encrypt_str(data, key):
     aes = cryptolib.aes
     return aes(key, 1).encrypt(
         data.encode("utf-8") + (b"\x00" * ((16 - (len(data) % 16)) % 16))
@@ -327,7 +323,6 @@ def safe_storage_operation(storage, operation, *args, **kwargs):
         print(f"CRITICAL: Storage method '{operation}' not found: {e}")
         return None
     except Exception as e:
-        # Comprehensive error logging
         print(f"CRITICAL: Storage operation '{operation}' failed")
         print(f"Arguments: {args}")
         print(f"Keyword Arguments: {kwargs}")
@@ -354,7 +349,7 @@ def retrieve_offline_messages(storage, debug=False):
         return []
 
 
-def send_offline_messages(websocket, messages, max_batch_size=10, debug=False):
+def send_offline_messages(mqtt_handler, messages, max_batch_size=10, debug=False):
     sent_count = 0
     for i in range(0, len(messages), max_batch_size):
         batch = messages[i : i + max_batch_size]
@@ -363,14 +358,14 @@ def send_offline_messages(websocket, messages, max_batch_size=10, debug=False):
                 print(
                     f"Attempting to send offline message batch of {len(batch)} messages"
                 )
-            response = websocket.send_batch(batch)
-            if response:
+            success = mqtt_handler.send_batch(batch)
+            if success:
                 sent_count += len(batch)
                 if debug:
                     print(f"Successfully sent {len(batch)} offline messages")
-            if isinstance(response, dict) and response.get("code") != 200:
+            else:
                 if debug:
-                    print(f"Batch send failed with response: {response}")
+                    print("Batch send failed")
                 break
         except Exception as e:
             if debug:

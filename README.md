@@ -8,12 +8,14 @@ A resource-optimized SDK for IoT and embedded devices, featuring a minimal memor
 ## Key Features
 
 - **Minimal Memory Footprint**: Optimized for devices with limited RAM
-- **API**: Easy to use in resource-constrained environments
+- **MQTT Communication**: Reliable protocol with QoS 1 delivery for IoT devices
+- **Automatic Entity Discovery**: Fetches entity info from API using API key
+- **Simple Callback System**: Easy message handling with user-defined callbacks
 - **Configuration via JSON**: Uses config.json for device configuration
 - **BTree-based Offline Storage**: Efficient storage with minimal overhead
 - **Hardware Watchdog Integration**: Ensures reliability in unstable environments
-- **WebSocket Communication**: Efficient protocol for IoT devices
 - **Flexible Operation Modes**: Support for both managed and unmanaged operation
+- **TLS Support**: Secure connections with proper SSL context
 
 ## Prerequisites
 
@@ -34,7 +36,7 @@ The Tendrl SDK offers two installation options to suit different device constrai
 |---------|------------------|---------------------|
 | **Client & Networking** | ✅ | ✅ |
 | **Message Publishing** | ✅ | ✅ |
-| **WebSocket Communication** | ✅ | ✅ |
+| **MQTT Communication** | ✅ | ✅ |
 | **Client Database** | ✅ | ❌ |
 | **Offline Storage** | ✅ | ❌ |
 | **TTL Management** | ✅ | ❌ |
@@ -352,6 +354,111 @@ Managed mode additionally requires:
     "wifi_pw": "your_wifi_password"
 }
 ```
+
+### Configuration Structure
+
+The client uses two configuration files:
+
+1. **Library Config** (`/lib/tendrl/config.json`): Default settings (installed automatically)
+2. **User Config** (`/config.json`): Your credentials and cached data
+
+User config structure:
+```json
+{
+    "api_key": "your_api_key",
+    "wifi_ssid": "your_wifi_network",
+    "wifi_pw": "your_wifi_password",
+    "api_key_id": "cached_entity_id",    // Auto-cached after first connection
+    "subject": "cached_resource_path"    // Auto-cached after first connection
+}
+```
+
+**Note**: `api_key_id` and `subject` are automatically cached after successful API authentication and cleared if credentials become invalid.
+
+## MQTT Communication
+
+The SDK uses MQTT for reliable communication with the Tendrl platform. Key features:
+
+### Automatic Entity Discovery with Caching
+
+The client automatically fetches entity information from the API using your API key and caches it for efficiency:
+
+```python
+from tendrl import Client
+
+# Client automatically fetches entity info on first connection
+# Subsequent connections use cached JTI and subject
+client = Client(debug=True)
+client.start()
+
+# Entity info is used for:
+# - MQTT topic structure: <account>/<region>/<jti>/<action>
+# - Authentication with MQTT broker
+# - Message routing
+
+# Cached data is automatically cleared if API credentials become invalid
+```
+
+### Message Callback System
+
+Handle incoming messages with a simple callback function:
+
+```python
+def message_handler(message):
+    """Handle incoming messages"""
+    msg_type = message.get('msg_type')
+    data = message.get('data', {})
+    
+    if msg_type == 'cmd':
+        print(f"Command received: {data}")
+        # Handle commands here
+    elif msg_type == 'heartbeat':
+        print(f"Heartbeat from: {data}")
+    elif msg_type == 'publish':
+        print(f"Published data: {data}")
+
+# Initialize client with callback
+client = Client(
+    mode="sync",
+    debug=True,
+    callback=message_handler
+)
+```
+
+### Message Types
+
+The SDK supports various message types:
+
+- **publish**: Standard data publishing
+- **heartbeat**: System status and health information
+- **cmd**: Commands from the platform
+- **fs_cmd_resp**: File system command responses
+- **terminal_cmd_resp**: Terminal command responses
+- **client_cmd_resp**: Client command responses
+- **file**: File transfer messages
+
+### Topic Structure
+
+Messages are published to topics following this structure:
+```
+<account>/<region>/<jti>/<action>
+```
+
+Example: `1001/us-east/entity:gateway/publish`
+
+### TLS Support
+
+Secure connections are supported with automatic SSL context creation:
+
+```json
+{
+    "mqtt_host": "mqtt.tendrl.com",
+    "mqtt_port": 443,
+    "mqtt_ssl": true
+}
+```
+
+For development environments, self-signed certificates are automatically allowed when using localhost.
 
 ## Data Collection Methods
 

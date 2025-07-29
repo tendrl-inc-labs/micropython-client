@@ -4,11 +4,15 @@ import time
 import requests
 
 
-def get_claims(url_path, token):
+def get_claims(url_path, token, e_type=None):
     try:
         gc.collect()
+        url = f"{url_path}/api/claims"
+        if e_type:
+            url += f"?e_type={e_type}"
+        
         resp = requests.get(
-            f"{url_path}/api/claims",
+            url,
             headers={"Authorization": f"Bearer {token}"},
             timeout=3,
         )

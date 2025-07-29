@@ -23,7 +23,7 @@ except ImportError:
     BTREE_AVAILABLE = False
 
 from .network_manager import NetworkManager
-from .websocket_handler import WSHandler
+from .mqtt_handler import MQTTHandler
 from .queue_manager import QueueManager
 from .utils.util_helpers import (
     safe_storage_operation,
@@ -49,7 +49,6 @@ class Client:
             raise ImportError("Asyncio module is required for async mode")
         if mode == "sync" and not MACHINE_AVAILABLE:
             raise ImportError("Machine module is required for sync mode")
-        # Auto-disable database features if MicroTetherDB is not available
         if not BTREE_AVAILABLE:
             if client_db or offline_storage:
                 if debug:
@@ -59,7 +58,7 @@ class Client:
             offline_storage = False
         self.mode = mode
         self.managed = managed
-        self._user_event_loop = event_loop  # Store user-provided event loop
+        self._user_event_loop = event_loop
         self.config = read_config()
         if not self.config.get("tendrl_version"):
             self.config["tendrl_version"] = "0.1.0"
@@ -70,7 +69,7 @@ class Client:
             if not managed
             else NetworkManager(self.config, debug)
         )
-        self.websocket = WSHandler(self.config, debug)
+        self.mqtt = MQTTHandler(self.config, debug, callback)
         self.queue = QueueManager(
             max_batch=max_batch_size,
             debug=debug,
@@ -82,7 +81,7 @@ class Client:
         self.debug = debug
         self.check_msg_rate = check_msg_rate
         self.callback = callback
-        self.client_enabled = False  # Start disabled in both modes
+        self.client_enabled = False
         self.send_heartbeat = send_heartbeat and managed
         self._timer_id = timer
         self._timer_freq = freq
@@ -102,9 +101,7 @@ class Client:
         self._app_timer = None
         self._wdt = watchdog
         if mode == "async":
-            # Use user-provided event loop if available
             if self._user_event_loop:
-                # Set the user's loop as the current event loop
                 asyncio.set_event_loop(self._user_event_loop)
                 if debug:
                     print("✅ Using user-provided event loop for client")
@@ -112,7 +109,6 @@ class Client:
             self._tasks = []
         if BTREE_AVAILABLE and managed:
             try:
-                # Use user-provided event loop or get current one for async mode
                 database_event_loop = None
                 if mode == "async" and ASYNCIO_AVAILABLE:
                     if self._user_event_loop:
@@ -125,14 +121,10 @@ class Client:
                             if debug:
                                 print("✅ Using current running event loop for databases")
                         except RuntimeError:
-                            # No running loop, databases will handle this
                             if debug:
                                 print("⚠️ No running event loop found, databases will create one")
-                # Main storage database (for offline message storage)
-                # Only create if offline_storage is enabled
                 if offline_storage:
                     try:
-                        # Lazy import to save RAM on devices that may not use the DB
                         from tendrl.lib.microtetherdb.db import MicroTetherDB
                         self._db = MicroTetherDB(
                             filename="/lib/tendrl/tether.db",
@@ -150,11 +142,8 @@ class Client:
                     self._db = None
                     if debug:
                         print("⚠️ Offline storage disabled - no message queuing")
-                # Client database (configurable storage mode)
-                # Only create if client_db is enabled
                 if client_db:
                     try:
-                        # Lazy import to save RAM on devices that may not use the DB
                         from tendrl.lib.microtetherdb.db import MicroTetherDB
                         self._client_db = MicroTetherDB(
                             filename="/lib/tendrl/client_db.db",
@@ -234,13 +223,13 @@ class Client:
         try:
             jti = self.network.connect()
             if jti:
-                if self.websocket.connect(jti, e_type=self._e_type):
+                if self.mqtt.connect():
                     self.client_enabled = True
                     gc.collect()
                     if self.debug:
                         print("Connected to Tendrl Server")
                     return True
-            self.client_enabled, self.websocket.connected = False, False
+            self.client_enabled, self.mqtt.connected = False, False
             return False
         except Exception as e:
             self.client_enabled = False
@@ -297,7 +286,6 @@ class Client:
                 if self.debug:
                     print(f"Offline message cleanup error: {e}")
 
-    # ===== SYNC MODE IMPLEMENTATION =====
     def _timer_callback(self, timer):
         if self._proc:
             return
@@ -306,20 +294,23 @@ class Client:
         try:
             current_time = time.time()
 
-            # Send heartbeat
             if self.send_heartbeat and (current_time - self._last_heartbeat) >= 30:
                 try:
                     self._last_heartbeat = current_time
                     msg = make_message(free(bytes_only=True), "heartbeat")
-                    response = self.websocket.send_message(msg)
-                    if response.get("code") >= 400:
-                        self.client_enabled, self.websocket.connected = False, False
+                    success, is_connection_error = self.mqtt.send_message(msg)
+                    if not success and is_connection_error:
+                        if self.debug:
+                            print("❌ Heartbeat connection error - disabling client")
+                        self.client_enabled, self.mqtt.connected = False, False
+                    elif not success:
+                        if self.debug:
+                            print("❌ Heartbeat validation error - client remains enabled")
                     did_work = True
                 except Exception:
-                    self.client_enabled, self.websocket.connected = False, False
+                    self.client_enabled, self.mqtt.connected = False, False
                     return
 
-            # Attempt reconnect if not connected
             if not self.client_enabled:
                 if (current_time - self._last_connect) >= 30:
                     if self._connect():
@@ -330,17 +321,15 @@ class Client:
                     self._process_offline_queue()
                 return
 
-            # Process queue
             try:
                 batch = self.queue.process_batch()
                 if batch:
                     try:
-                        response = self.websocket.send_batch(batch)
-                        if (not response or
-                            (isinstance(response, dict) and response.get("code") == 401)):
+                        success = self.mqtt.send_batch(batch)
+                        if not success:
                             self.client_enabled = False
                             if self.debug:
-                                print("Unauthorized or no response")
+                                print("Batch send failed")
                         else:
                             did_work = True
                             if self.debug:
@@ -357,26 +346,23 @@ class Client:
                     print(f"Queue processing error: {queue_err}")
                 return
 
-            # Check messages
             if current_time - self._last_msg_check >= self.check_msg_rate:
                 try:
                     self._last_msg_check = current_time
-                    msg = self.websocket.check_messages()
+                    msg = self.mqtt.check_messages()
                     if msg:
                         self._process_message(msg)
                         did_work = True
                 except Exception as check_msg_err:
                     if self.debug:
                         print(f"Check messages error: {check_msg_err}")
-                    self.client_enabled, self.websocket.connected = False, False
+                    self.client_enabled, self.mqtt.connected = False, False
 
-            # Cleanup
             if current_time - self._last_cleanup >= 60:
                 self._sync_cleanup_offline_messages()
                 self._last_cleanup = current_time
                 did_work = True
 
-            # Process offline queue
             if self._process_offline_queue() > 0:
                 did_work = True
 
@@ -399,26 +385,19 @@ class Client:
             safe_storage_operation(self._client_db, "cleanup")
         return result
 
-    # ===== ASYNC MODE IMPLEMENTATION =====
     async def _process_queue(self):
         if self.client_enabled:
             try:
                 if len(self.queue.queue):
                     batch = self.queue.process_batch()
                     if batch:
-                        response = self.websocket.send_batch(batch)
-                        if not response:
-                            self.client_enabled, self.websocket.connected = False, False
-                        elif isinstance(response, dict):
-                            if response.get("code") == 401:
-                                if self.debug:
-                                    print("Unauthorized: Disabling client")
-                                    self.stop()
-                                self.client_enabled, self.websocket.connected = False, False
+                        success = self.mqtt.send_batch(batch)
+                        if not success:
+                            self.client_enabled, self.mqtt.connected = False, False
             except Exception as e:
                 if self.debug:
                     print(f"Queue processing error: {e}")
-                self.client_enabled, self.websocket.connected = False, False
+                self.client_enabled, self.mqtt.connected = False, False
 
     async def _send_heartbeat(self):
         current_time = time.time()
@@ -426,21 +405,26 @@ class Client:
             try:
                 self._last_heartbeat = current_time
                 msg = make_message(free(bytes_only=True), "heartbeat")
-                send_result = self.websocket.send_message(msg)
+                success, is_connection_error = self.mqtt.send_message(msg)
 
-                if not send_result:
-                    self.client_enabled, self.websocket.connected = False, False
+                if not success and is_connection_error:
+                    if self.debug:
+                        print("❌ Heartbeat connection error - disabling client")
+                    self.client_enabled, self.mqtt.connected = False, False
+                elif not success:
+                    if self.debug:
+                        print("❌ Heartbeat validation error - client remains enabled")
             except Exception as e:
                 if self.debug:
                     print(f"Heartbeat error: {e}")
-                self.client_enabled, self.websocket.connected = False, False
+                self.client_enabled, self.mqtt.connected = False, False
 
     async def _check_messages(self):
         current_time = time.time()
         if (current_time - self._last_msg_check) >= self.check_msg_rate:
             try:
                 self._last_msg_check = current_time
-                msg = self.websocket.check_messages()
+                msg = self.mqtt.check_messages()
                 if msg:
                     self._process_message(msg)
             except Exception as e:
@@ -457,7 +441,6 @@ class Client:
                 self._proc = True
                 current_time = time.time()
 
-                # Reconnect if not enabled
                 if not self.client_enabled:
                     if (current_time - self._last_connect) >= 30:
                         try:
@@ -474,32 +457,26 @@ class Client:
                     await asyncio.sleep(0.5)
                     continue
 
-                # Process queue
                 await self._process_queue()
                 did_work = True
 
-                # Send heartbeat
                 if self.send_heartbeat and (current_time - self._last_heartbeat) >= 30:
                     try:
                         await self._send_heartbeat()
                         did_work = True
                     except Exception:
-                        self.client_enabled, self.websocket.connected = False, False
+                        self.client_enabled, self.mqtt.connected = False, False
                         return
 
-                # Check messages
                 await self._check_messages()
                 did_work = True
 
-                # Cleanup expired messages
                 await self._cleanup_offline_messages()
                 did_work = True
 
-                # Process offline queue
                 if self._process_offline_queue() > 0:
                     did_work = True
 
-                # Feed watchdog if active
                 if self._wdt and MACHINE_AVAILABLE:
                     try:
                         self._wdt.feed()
@@ -539,7 +516,6 @@ class Client:
                         "publish",
                         tags=tags,
                         entity=entity,
-                        wait_response=False,
                     )
                     queue_result = self.queue.put(message)
                     if not queue_result or not self.client_enabled:
@@ -552,8 +528,7 @@ class Client:
                             {"error": str(e)},
                             "publish",
                             tags=tags,
-                            entity=entity,
-                            wait_response=False,
+                            entity=entity
                         )
                         self._store_offline_message(error_message, db_ttl)
                     raise
@@ -568,7 +543,6 @@ class Client:
                         "publish",
                         tags=tags,
                         entity=entity,
-                        wait_response=False,
                     )
                     queue_result = self.queue.put(message)
                     if not queue_result or not self.client_enabled:
@@ -581,8 +555,7 @@ class Client:
                             {"error": str(e)},
                             "publish",
                             tags=tags,
-                            entity=entity,
-                            wait_response=False,
+                            entity=entity
                         )
                         self._store_offline_message(error_message, db_ttl)
                     raise
@@ -592,7 +565,6 @@ class Client:
     def publish(
         self,
         data,
-        wait_response=False,
         tags=None,
         entity="",
         write_offline=False,
@@ -605,7 +577,6 @@ class Client:
                     print("Warning: write_offline is not supported in unmanaged mode")
                 write_offline = False
 
-            # Ensure we're connected before sending
             if not self.client_enabled:
                 if not self._connect():
                     if self.debug:
@@ -614,35 +585,32 @@ class Client:
 
             if not isinstance(data, dict):
                 data = {"data": str(data)}
-            message = make_message(
-                data, "publish", tags=tags, entity=entity, wait_response=wait_response
-            )
-            if wait_response:
-                r = self.websocket.send_message(message)
-                if r.get("code") != 200:
-                    if self.debug:
-                        print(f"Error publishing message: {r}")
-                return r.get("content")
+            
             if self.managed:
+                message = make_message(
+                    data, "publish", tags=tags, entity=entity
+                )
                 if not self.queue.put(message):
                     if self.debug:
                         print("Failed to queue message - queue full")
                     if self.storage and write_offline:
                         self._store_offline_message(message, db_ttl)
             else:
-                # In unmanaged mode, send directly
-                r = self.websocket.send_message(message)
-                if r.get("code") != 200:
+                success, is_connection_error = self.mqtt.publish_message(data, "publish", tags=tags)
+                if not success:
                     if self.debug:
-                        print(f"Error publishing message: {r}")
-                    self.client_enabled = False  # Disable client on error
-                return r.get("content", "")
+                        if is_connection_error:
+                            print("❌ Connection error - disabling client")
+                        else:
+                            print("❌ Message validation error - client remains enabled")
+                    if is_connection_error:
+                        self.client_enabled = False
+                return success
             return ""
         finally:
             self._proc = False
 
     def _scheduled_timer_callback(self, timer):
-        # Use micropython.schedule to run the actual timer callback
         micropython.schedule(self._timer_callback, timer)
 
     def start(self, watchdog=0):
@@ -656,7 +624,7 @@ class Client:
                 self._app_timer.init(
                     mode=machine.Timer.PERIODIC,
                     freq=self._timer_freq,
-                    callback=self._scheduled_timer_callback,  # Use the new scheduled callback
+                    callback=self._scheduled_timer_callback,
                 )
             if watchdog and MACHINE_AVAILABLE:
                 self._wdt = machine.WDT(timeout=min(max(watchdog, 1), 60) * 1000)
@@ -665,14 +633,11 @@ class Client:
             self._stop_event.clear()
             self._tasks = []
             try:
-                # Check if we're in an async context or have a user-provided loop
                 if self._user_event_loop:
-                    # User provided their own loop, create task on it
                     main_task = self._user_event_loop.create_task(self._async_callback())
                     if self.debug:
                         print("✅ Created client task on user-provided event loop")
                 else:
-                    # Try to create task on current loop
                     main_task = asyncio.create_task(self._async_callback())
                     if self.debug:
                         print("✅ Created client task on current event loop")
@@ -706,10 +671,10 @@ class Client:
                     task.cancel()
             self._tasks = []
         try:
-            self.websocket.cleanup()
+            self.mqtt.cleanup()
         except Exception as e:
             if self.debug:
-                print(f"Error closing websocket: {e}")
+                print(f"Error closing MQTT connection: {e}")
         try:
             self.network.cleanup()
         except Exception as e:
@@ -733,10 +698,10 @@ class Client:
                         task.cancel()
                 self._tasks = []
         try:
-            self.websocket.cleanup()
+            self.mqtt.cleanup()
         except Exception as e:
             if self.debug:
-                print(f"Error closing websocket: {e}")
+                print(f"Error closing MQTT connection: {e}")
         try:
             self.network.cleanup()
         except Exception as e:
@@ -799,7 +764,6 @@ class Client:
                 if len(batch_messages) == 10:
                     break
                 message = self._offline_queue.queue.get()
-                # will this ever not be a dict?
                 db_ttl = (
                     message.pop("_offline_ttl") if isinstance(message, dict) else 86400
                 )
@@ -813,13 +777,12 @@ class Client:
             try:
                 if self.client_enabled and not self._proc:
                     try:
-                        response = self.websocket.send_batch(batch_messages)
-                        if response:
-                            if response.get("code") != 200:
-                                for msg in batch_messages:
-                                    self._offline_queue.put(msg)
-                            else:
-                                processed = len(batch_messages)
+                        success = self.mqtt.send_batch(batch_messages)
+                        if success:
+                            processed = len(batch_messages)
+                        else:
+                            for msg in batch_messages:
+                                self._offline_queue.put(msg)
                     except Exception as send_err:
                         if self.debug:
                             print(f"message send failed: {send_err}")
@@ -851,7 +814,7 @@ class Client:
             return 0
         offline_messages = retrieve_offline_messages(self.storage, self.debug)
         return send_offline_messages(
-            self.websocket,
+            self.mqtt,
             offline_messages,
             debug=self.debug,
         )
@@ -860,7 +823,7 @@ class Client:
         jti = self.network.connect()
         if jti:
             try:
-                if self.websocket.connect(jti, e_type=self._e_type):
+                if self.mqtt.connect():
                     self.client_enabled = True
                     gc.collect()
                     if self.debug:
@@ -877,11 +840,9 @@ class Client:
     async def _async_cleanup_offline_messages(self):
         await self._cleanup_offline_messages()
 
-    # ===== CLIENT DATABASE =====
     def db_put(self, data, ttl=0, tags=None):
         if not self.client_db:
             try:
-                # Lazy import to save RAM on devices that may not use the DB
                 from tendrl.lib.microtetherdb.db import MicroTetherDB
             except ImportError:
                 raise DBError("Client database not available - install full package with MicroTetherDB")
@@ -937,7 +898,6 @@ class Client:
                 print(f"Client database delete error: {e}")
             return 0
 
-    # returns a generator of all messages in the database
     def db_list(self):
         if not self.client_db:
             if not BTREE_AVAILABLE:
