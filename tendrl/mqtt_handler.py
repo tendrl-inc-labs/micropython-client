@@ -6,7 +6,7 @@ import gc
 
 
 from umqtt.simple import MQTTClient, MQTTException
-from .config_manager import update_config, clear_entity_cache
+from .config_manager import update_entity_cache , get_entity_cache
 
 
 class MQTTHandler:
@@ -34,8 +34,8 @@ class MQTTHandler:
                     print("❌ Missing API key in configuration")
                 return False
 
-            cached_api_key_id = self.config.get("api_key_id")
-            cached_subject = self.config.get("subject")
+            # Try to get cached entity info from separate cache file
+            cached_api_key_id, cached_subject = get_entity_cache()
 
             if cached_api_key_id and cached_subject:
                 if self.debug:
@@ -50,6 +50,10 @@ class MQTTHandler:
                 print("🌐 Fetching entity info from API...")
 
             api_base_url = self.config.get("app_url", "https://app.tendrl.com")
+            
+            # Ensure the URL has a protocol prefix
+            if not api_base_url.startswith(('http://', 'https://')):
+                api_base_url = f"http://{api_base_url}"
 
             if self.debug:
                 print(f"API Base URL: {api_base_url}")
@@ -71,39 +75,35 @@ class MQTTHandler:
                 print(f"API Response: {response.text}")
 
             if response.status_code == 200:
-                self.entity_info = response.json()
-                if self.debug:
-                    print(f"Entity info loaded: {self.entity_info}")
-
-                jti = self.entity_info.get('jti')
-                sub = self.entity_info.get('sub')
-                if jti and sub:
+                entity_info = response.json()
+                
+                # Cache entity info
+                try:
+                    update_entity_cache(
+                        jti=entity_info.get('jti'), 
+                        sub=entity_info.get('sub')
+                    )
                     if self.debug:
                         print("💾 Caching entity info")
-                    update_config(api_key_id=jti, subject=sub)
+                except Exception as cache_err:
+                    if self.debug:
+                        print(f"Error updating entity cache: {cache_err}")
 
-                response.close()
+                self.entity_info = entity_info
                 return True
             else:
                 if self.debug:
-                    print(f"Failed to get entity info: {response.status_code}")
-
-                if response.status_code in [401, 403]:
-                    if self.debug:
-                        print("🔒 Clearing cached entity info due to authentication failure")
-                    clear_entity_cache()
-
-                response.close()
+                    print(f"❌ Failed to fetch entity info: {response.status_code}")
                 return False
-
         except Exception as e:
             if self.debug:
-                print(f"Error fetching entity info: {e}")
+                print(f"❌ Entity info fetch error: {e}")
             return False
 
 
 
-    def _build_topic(self, action):
+    def _build_publish_topic(self):
+        """Build the publish topic, which is always the same for all message types."""
         if not self.entity_info:
             raise Exception('Entity info not available')
 
@@ -119,7 +119,26 @@ class MQTTHandler:
         if not jti:
             raise Exception('JTI not found in entity info')
 
-        return f"{account}/{region}/{jti}/{action}"
+        return f"{account}/{region}/{jti}/publish"
+
+    def _build_messages_topic(self):
+        """Build the messages topic for subscribing to incoming messages."""
+        if not self.entity_info:
+            raise Exception('Entity info not available')
+
+        sub = self.entity_info.get('sub', '')
+        sub_parts = sub.split(':')
+        if len(sub_parts) < 2:
+            raise Exception('Invalid resource path format')
+
+        account = sub_parts[0]
+        region = sub_parts[1]
+        jti = self.entity_info.get('jti', '')
+
+        if not jti:
+            raise Exception('JTI not found in entity info')
+
+        return f"{account}/{region}/{jti}/messages"
 
     def _validate_and_prepare_data(self, data):
         if data is None:
@@ -133,14 +152,8 @@ class MQTTHandler:
                 parsed = json.loads(data)
                 if isinstance(parsed, dict):
                     return parsed
-                return {"value": parsed}
             except (ValueError, TypeError):
                 return {"message": data}
-
-        if isinstance(data, (int, float, bool, list)):
-            return {"value": data}
-
-        return {"value": str(data)}
 
     def connect(self):
         self.connected = False
@@ -167,6 +180,19 @@ class MQTTHandler:
 
         if self.debug:
             print(f"🔧 MQTT config: {mqtt_host}:{mqtt_port} (SSL: {mqtt_ssl})")
+            
+        # Validate MQTT host configuration
+        if not mqtt_host or mqtt_host.strip() == "":
+            if self.debug:
+                print("❌ MQTT host is empty or not configured")
+            return False
+            
+        # Check if host is a local IP (which might indicate a configuration issue)
+        if mqtt_host.startswith(('192.168.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.')):
+            if self.debug:
+                print(f"⚠️ Warning: MQTT host {mqtt_host} appears to be a local IP address")
+                print("   This might indicate a DNS resolution issue or wrong configuration")
+                print("   Expected: mqtt.tendrl.com or similar public hostname")
 
         api_key = self.config.get("api_key")
         if not api_key:
@@ -201,7 +227,7 @@ class MQTTHandler:
                         port=mqtt_port,
                         user=username,
                         password=password,
-                        keepalive=60,
+                        keepalive=300,
                         ssl=mqtt_ssl
                     )
 
@@ -211,16 +237,17 @@ class MQTTHandler:
                         print("Attempting to connect...")
                     self._mqtt.connect()
 
+                    # Set connection status before attempting subscription
+                    self.connected = True
+                    self._consecutive_errors = 0
+                    self._jti = username
+                    self._client_id = client_id
+
                     try:
                         self._subscribe_to_topics()
                     except Exception as sub_err:
                         if self.debug:
                             print(f"⚠️ Subscription warning (non-critical): {sub_err}")
-
-                    self.connected = True
-                    self._consecutive_errors = 0
-                    self._jti = username
-                    self._client_id = client_id
 
                     if self.debug:
                         print(f"✅ MQTT connected successfully to {mqtt_host}")
@@ -229,12 +256,15 @@ class MQTTHandler:
                 except MQTTException as mqtt_err:
                     if self.debug:
                         print(f"❌ MQTT connection error (Attempt {attempt + 1}): {mqtt_err}")
+                        print(f"   Host: {mqtt_host}, Port: {mqtt_port}, SSL: {mqtt_ssl}")
                     self.connected = False
                     time.sleep(2**attempt)
                     continue
                 except Exception as e:
                     if self.debug:
                         print(f"❌ Unexpected MQTT connection error (Attempt {attempt + 1}): {e}")
+                        print(f"   Error type: {type(e).__name__}")
+                        print(f"   Host: {mqtt_host}, Port: {mqtt_port}, SSL: {mqtt_ssl}")
                     self.connected = False
                     time.sleep(2**attempt)
                     continue
@@ -258,8 +288,17 @@ class MQTTHandler:
                 print("❌ Cannot subscribe - MQTT not connected")
             return
 
-        if self.debug:
-            print("📡 No subscriptions needed - backend handles routing")
+        try:
+            # Subscribe to messages topic to receive commands/notifications
+            messages_topic = self._build_messages_topic()
+            self._mqtt.subscribe(messages_topic, qos=1)
+            
+            if self.debug:
+                print(f"📡 Subscribed to messages topic: {messages_topic}")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error subscribing to topics: {e}")
 
     def _on_message(self, topic, msg):
         try:
@@ -302,96 +341,23 @@ class MQTTHandler:
 
         return self.connect()
 
-    def publish_message(self, data, msg_type="publish", destination=None, tags=None):
+    def publish_message(self, data):
         if not self.connected or self._mqtt is None:
             if self.debug:
                 print("❌ Not connected to MQTT broker")
             return False, True
 
         try:
-            if not msg_type or not isinstance(msg_type, str):
-                raise Exception('msg_type must be a non-empty string')
+            p = json.dumps(data)
+            # Always use the publish topic
+            topic = self._build_publish_topic()
 
-            if destination and not isinstance(destination, str):
-                raise Exception('destination must be a string or None')
-
-            if tags and not isinstance(tags, list):
-                raise Exception('tags must be a list or None')
-
-            topic = self._build_topic(msg_type)
-
-            validated_data = self._validate_and_prepare_data(data)
-
-            message = {
-                "msg_type": msg_type,
-                "data": validated_data,
-                "timestamp": time.time()
-            }
-
-            if destination:
-                message["destination"] = destination
-
-            if tags:
-                message["context"] = {"tags": tags}
-
-            payload = json.dumps(message)
-
-            if self.debug:
-                print(f"Publishing to topic: {topic}")
-            self._mqtt.publish(topic, payload, qos=1)
-
-            if self.debug:
-                print(f"✅ Message published to topic: {topic}")
-                print(f"📤 Message: {payload}")
+            self._mqtt.publish(topic, p)
             return True, False
-
         except Exception as e:
             if self.debug:
-                print(f"❌ Error publishing message: {e}")
-
-            is_connection_error = (
-                not self.connected or
-                self._mqtt is None or
-                isinstance(e, MQTTException) or
-                "connection" in str(e).lower() or
-                "network" in str(e).lower() or
-                "timeout" in str(e).lower()
-            )
-
-            return False, is_connection_error
-
-    def send_message(self, msg):
-        if not self.connected or not self._mqtt:
-            if self.debug:
-                print("❌ MQTT not connected - cannot send message")
-            return False
-
-        with self._mqtt_lock:
-            try:
-                success, is_connection_error = self.publish_message(msg, "publish")
-
-                if not success and is_connection_error:
-                    self._consecutive_errors += 1
-                    if self._consecutive_errors >= 3:
-                        if self.debug:
-                            print(f"⚠️ Consecutive connection errors ({self._consecutive_errors}) - attempting reconnect")
-                        self._try_reconnect()
-
-                return success
-
-            except MQTTException as mqtt_err:
-                if self.debug:
-                    print(f"❌ MQTT send error: {mqtt_err}")
-                self._consecutive_errors += 1
-                if self._consecutive_errors >= 3:
-                    if self.debug:
-                        print(f"⚠️ Consecutive errors ({self._consecutive_errors}) - attempting reconnect")
-                    self._try_reconnect()
-                return False
-            except Exception as e:
-                if self.debug:
-                    print(f"❌ Unexpected send error: {e}")
-                return False
+                print(f"❌ Error in publish_message: {e}")
+            return False, True
 
     def _chunk_messages(self, messages):
         chunks = []
@@ -440,7 +406,7 @@ class MQTTHandler:
         for chunk_idx, chunk in enumerate(chunks):
             try:
                 for msg in chunk:
-                    success, is_connection_error = self.publish_message(msg, "publish")
+                    success, is_connection_error = self.publish_message(msg)
                     if success:
                         success_count += 1
                     elif is_connection_error:
@@ -502,7 +468,7 @@ class MQTTHandler:
         }
         if request_id:
             response_data["request_id"] = request_id
-        return self.publish_message(response_data, 'fs_cmd_resp')
+        return self.publish_message(response_data)
 
     def send_terminal_command_response(self, output="", error="", exit_code=0, request_id=None):
         response_data = {
@@ -512,12 +478,12 @@ class MQTTHandler:
         }
         if request_id:
             response_data["request_id"] = request_id
-        return self.publish_message(response_data, 'terminal_cmd_resp')
+        return self.publish_message(response_data)
 
     def send_client_command_response(self, data, request_id=None):
         if request_id:
             data["request_id"] = request_id
-        return self.publish_message(data, 'client_cmd_resp')
+        return self.publish_message(data)
 
     def send_file_transfer(self, file_data, destination=None):
-        return self.publish_message(file_data, 'file', destination)
+        return self.publish_message(file_data)

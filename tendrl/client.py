@@ -298,7 +298,7 @@ class Client:
                 try:
                     self._last_heartbeat = current_time
                     msg = make_message(free(bytes_only=True), "heartbeat")
-                    success, is_connection_error = self.mqtt.send_message(msg)
+                    success, is_connection_error = self.mqtt.publish_message(msg)
                     if not success and is_connection_error:
                         if self.debug:
                             print("❌ Heartbeat connection error - disabling client")
@@ -405,7 +405,7 @@ class Client:
             try:
                 self._last_heartbeat = current_time
                 msg = make_message(free(bytes_only=True), "heartbeat")
-                success, is_connection_error = self.mqtt.send_message(msg)
+                success, is_connection_error = self.mqtt.publish_message(msg)
 
                 if not success and is_connection_error:
                     if self.debug:
@@ -493,6 +493,7 @@ class Client:
                 if did_work:
                     gc.collect()
                 self._proc = False
+
     def add_background_task(self, coro):
         if self.mode != "async" or not ASYNCIO_AVAILABLE:
             if self.debug:
@@ -585,8 +586,9 @@ class Client:
 
             if not isinstance(data, dict):
                 data = {"data": str(data)}
-            
+
             if self.managed:
+                # Use make_message to ensure consistent timestamp generation
                 message = make_message(
                     data, "publish", tags=tags, entity=entity
                 )
@@ -596,7 +598,7 @@ class Client:
                     if self.storage and write_offline:
                         self._store_offline_message(message, db_ttl)
             else:
-                success, is_connection_error = self.mqtt.publish_message(data, "publish", tags=tags)
+                success, is_connection_error = self.mqtt.publish_message(data, tags=tags)
                 if not success:
                     if self.debug:
                         if is_connection_error:

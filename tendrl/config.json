@@ -1,11 +1,11 @@
 {
     "tendrl_version": "0.1.0",
-    "app_url": "https://app.tendrl.com",
+    "app_url": "app.tendrl.com",
     "api_key": "",
     "wifi_ssid":"",
     "wifi_pw": "",
     "reset": false,
     "mqtt_host": "mqtt.tendrl.com",
-    "mqtt_port": 1883,
-    "mqtt_ssl": false
+    "mqtt_port": 443,
+    "mqtt_ssl": true
 }

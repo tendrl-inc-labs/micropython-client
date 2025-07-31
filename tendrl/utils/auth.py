@@ -7,7 +7,11 @@ import requests
 def get_claims(url_path, token, e_type=None):
     try:
         gc.collect()
-        url = f"{url_path}/api/claims"
+        # Handle both full URLs and host-only paths
+        if url_path.startswith(('http://', 'https://')):
+            url = f"{url_path}/api/claims"
+        else:
+            url = f"http://{url_path}/api/claims"
         if e_type:
             url += f"?e_type={e_type}"
         
