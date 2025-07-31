@@ -188,6 +188,7 @@ class Client:
         return self._client_db
 
     def _process_message(self, msg):
+        print(msg)
         if not msg:
             return
         self._proc = True
@@ -352,7 +353,7 @@ class Client:
                     msg = self.mqtt.check_messages()
                     if msg:
                         self._process_message(msg)
-                        did_work = True
+                    did_work = True
                 except Exception as check_msg_err:
                     if self.debug:
                         print(f"Check messages error: {check_msg_err}")

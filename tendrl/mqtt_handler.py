@@ -186,13 +186,6 @@ class MQTTHandler:
             if self.debug:
                 print("❌ MQTT host is empty or not configured")
             return False
-            
-        # Check if host is a local IP (which might indicate a configuration issue)
-        if mqtt_host.startswith(('192.168.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.')):
-            if self.debug:
-                print(f"⚠️ Warning: MQTT host {mqtt_host} appears to be a local IP address")
-                print("   This might indicate a DNS resolution issue or wrong configuration")
-                print("   Expected: mqtt.tendrl.com or similar public hostname")
 
         api_key = self.config.get("api_key")
         if not api_key:
@@ -439,8 +432,8 @@ class MQTTHandler:
             return False
 
         try:
-            self._mqtt.check_msg()
-            return True
+            m = self._mqtt.check_msg()
+            return m
         except Exception as e:
             if self.debug:
                 print(f"❌ Error checking messages: {e}")
