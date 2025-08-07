@@ -1,15 +1,5 @@
-import binascii
-import collections
-import gc
-import hashlib
-import os
-import time
-
-import cryptolib
-import network
-
-
 def iso8601(timestamp=None):
+    import time
     if timestamp is None:
         timestamp = time.gmtime()
     return "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z".format(
@@ -22,6 +12,7 @@ def iso8601(timestamp=None):
     )
 
 def parse_iso8601(iso8601_str):
+    import time
     if not iso8601_str:
         return 0
     try:
@@ -40,6 +31,7 @@ def make_message(
     entity="",
     timestamp=None,
 ):
+    import time
     if not isinstance(data, (str, dict)):
         raise TypeError("Allowed types: ['str', 'dict']")
     if not tags:
@@ -59,6 +51,8 @@ def make_message(
 
 
 def get_wifi_status(station):
+    import network
+
     status_map = {
         network.STAT_IDLE: "Idle",
         network.STAT_CONNECTING: "Connecting",
@@ -83,6 +77,7 @@ def get_wifi_status(station):
 
 
 def get_mac(sta):
+    import binascii
     m = binascii.hexlify(sta.config("mac")).decode()
     return ":".join(m[i : i + 2] for i in range(0, 12, 2))
 
@@ -113,6 +108,8 @@ def starmap(function, iterable):
 
 
 def ntp_time(retry=0):
+    import time
+
     if retry < 4:
         try:
             import ntptime
@@ -124,6 +121,9 @@ def ntp_time(retry=0):
 
 
 def network_connect(ssid, password, max_retries=3, retry=0, debug=False):
+    import network
+    import time
+
     try:
         station = network.WLAN(network.STA_IF)
         station.active(True)
@@ -155,6 +155,8 @@ def network_connect(ssid, password, max_retries=3, retry=0, debug=False):
 
 
 def network_scan(station=None):
+    import network
+
     if station:
         station.disconnect()
     else:
@@ -195,6 +197,9 @@ def t_convert(t):
 
 
 def free(bytes_only=False):
+    import gc
+    import os
+
     gc.collect()
 
     mem_free = gc.mem_free()
@@ -224,10 +229,15 @@ def free(bytes_only=False):
 
 
 def gen_key():
+    import binascii
+    import os
+
     return binascii.hexlify(os.urandom(16))
 
 
 def encrypt_str(data, key):
+    import cryptolib
+
     aes = cryptolib.aes
     return aes(key, 1).encrypt(
         data.encode("utf-8") + (b"\x00" * ((16 - (len(data) % 16)) % 16))
@@ -235,11 +245,17 @@ def encrypt_str(data, key):
 
 
 def decrypt_str(data, key):
+    import cryptolib
+
     aes = cryptolib.aes
     return aes(key, 1).decrypt(data).decode().split("\x00")[0]
 
 
 def hash_dir(dir_path):
+    import binascii
+    import hashlib
+    import os
+
     ilist = os.ilistdir
     hxly = binascii.hexlify
     sha1 = hashlib.sha1
@@ -255,58 +271,11 @@ def hash_dir(dir_path):
 
 
 def hash_check(file_hash, filepath):
+    import hashlib
+
     with open(filepath, "rb") as f:
         if hashlib.sha1(f.read()) == file_hash:
             return True
-
-
-class QueueFull(Exception):
-    pass
-
-
-class Queue:
-    __slots__ = ("max_len", "_queue")
-
-    def __init__(self, max_len: int = 300):
-        self.max_len = max_len
-        self._queue = self._new_queue()
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        try:
-            return self._queue.popleft()
-        except IndexError:
-            raise StopIteration
-
-    def __len__(self):
-        return len(self._queue)
-
-    def _new_queue(self):
-        return collections.deque((), self.max_len, 1)
-
-    def put(self, item):
-        try:
-            self._queue.append(item)
-        except IndexError:
-            raise QueueFull()
-
-    def get(self):
-        try:
-            return self._queue.popleft()
-        except IndexError:
-            return None
-
-    def peek(self):
-        try:
-            return self._queue[0]
-        except IndexError:
-            return None
-
-    def clear(self):
-        self._queue = self._new_queue()
-
 
 def safe_storage_operation(storage, operation, *args, **kwargs):
     if storage is None:

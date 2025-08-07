@@ -24,14 +24,13 @@ except ImportError:
 
 from .network_manager import NetworkManager
 from .mqtt_handler import MQTTHandler
-from .queue_manager import QueueManager
+from .queue_manager import QueueManager, QueueFull
 from .utils.util_helpers import (
     safe_storage_operation,
     retrieve_offline_messages,
     send_offline_messages,
     make_message,
-    free,
-    QueueFull
+    free
 )
 from .config_manager import read_config
 
@@ -598,7 +597,7 @@ class Client:
                     if self.storage and write_offline:
                         self._store_offline_message(message, db_ttl)
             else:
-                success, is_connection_error = self.mqtt.publish_message(data, tags=tags)
+                success, is_connection_error = self.mqtt.publish_message(data)
                 if not success:
                     if self.debug:
                         if is_connection_error:

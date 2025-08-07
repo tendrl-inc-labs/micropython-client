@@ -13,7 +13,7 @@ def read_config():
             if user_config_content.strip():  # Only try to parse if file has content
                 user_config = json.loads(user_config_content)
     except (OSError, ValueError) as e:
-        print(f"Error reading user config: {e}")
+        print(f"❌ Error reading user config: {e}")
         user_config = {}
 
     frozen_config = {}
@@ -59,7 +59,7 @@ def save_config(config):
             json.dump(existing_config, f)
         return True
     except (OSError, ValueError) as e:
-        print(f"Error saving config: {e}")
+        print(f"❌ Error saving config: {e}")
         return False
 
 
@@ -75,7 +75,7 @@ def update_config(api_key_id="", subject=""):
 
         return save_config(config)
     except Exception as e:
-        print(f"Error updating config: {e}")
+        print(f"❌ Error updating config: {e}")
         return False
 
 def update_entity_cache(api_key_id="", subject=""):
@@ -94,7 +94,7 @@ def update_entity_cache(api_key_id="", subject=""):
 
         return True
     except Exception as e:
-        print(f"Error updating entity cache: {e}")
+        print(f"❌ Error updating entity cache: {e}")
         return False
 
 def get_entity_cache():
@@ -118,5 +118,5 @@ def clear_entity_cache():
             pass  # File doesn't exist
         return True
     except Exception as e:
-        print(f"Error clearing entity cache: {e}")
+        print(f"❌ Error clearing entity cache: {e}")
         return False

@@ -20,9 +20,6 @@ class MQTTHandler:
         self._max_batch_size = 4096
         self._max_messages_per_batch = 50
         self._reconnect_delay = 5
-        self._client_id = None
-        self._jti = None
-        self._e_type = None
         self.entity_info = None
         self.callback = callback
 
@@ -237,8 +234,6 @@ class MQTTHandler:
                     # Set connection status before attempting subscription
                     self.connected = True
                     self._consecutive_errors = 0
-                    self._jti = username
-                    self._client_id = client_id
 
                     try:
                         self._subscribe_to_topics()
@@ -289,10 +284,10 @@ class MQTTHandler:
             # Subscribe to messages topic to receive commands/notifications
             messages_topic = self._build_messages_topic()
             self._mqtt.subscribe(messages_topic, qos=1)
-            
+
             if self.debug:
                 print(f"📡 Subscribed to messages topic: {messages_topic}")
-                
+
         except Exception as e:
             if self.debug:
                 print(f"❌ Error subscribing to topics: {e}")
@@ -482,5 +477,5 @@ class MQTTHandler:
             data["request_id"] = request_id
         return self.publish_message(data)
 
-    def send_file_transfer(self, file_data, destination=None):
+    def send_file_transfer(self, file_data):
         return self.publish_message(file_data)
