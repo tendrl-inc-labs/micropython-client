@@ -222,11 +222,10 @@ class Client:
 
     def _connect(self):
         try:
-            jti = self.network.connect()
-            if jti:
+            if self.network.connect():
+                gc.collect()
                 if self.mqtt.connect():
                     self.client_enabled = True
-                    gc.collect()
                     if self.debug:
                         print("Connected to Tendrl Server")
                     return True

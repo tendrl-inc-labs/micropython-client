@@ -1,5 +1,4 @@
 from .utils.util_helpers import network_connect, ntp_time
-from .utils.auth import get_claims
 
 
 class NetworkManager:
@@ -26,23 +25,10 @@ class NetworkManager:
                 except Exception as ntp_err:
                     print(f"NTP time sync failed: {ntp_err}")
 
-            claims = get_claims(
-                self.config.get("app_url"),
-                self.config.get("api_key"),
-                self.config.get("e_type")
-            )
-            if claims is None:
-                if self.debug:
-                    print("Authentication claims retrieval failed")
-                return None
-            if claims and claims.get("jti"):
-                if self.debug:
-                    print("Authentication successful")
-                return claims.get("jti")
+            # Network connection successful
             if self.debug:
-                print("Authentication failed")
-                print(claims.get('error'))
-            return None
+                print("Network connection established")
+            return True
         except Exception as e:
             if self.debug:
                 print(f"Unexpected connection error: {e}")

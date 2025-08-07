@@ -50,7 +50,7 @@ class MQTTHandler:
                 print("🌐 Fetching entity info from API...")
 
             api_base_url = self.config.get("app_url", "https://app.tendrl.com")
-            
+
             # Ensure the URL has a protocol prefix
             if not api_base_url.startswith(('http://', 'https://')):
                 api_base_url = f"http://{api_base_url}"
@@ -75,13 +75,15 @@ class MQTTHandler:
                 print(f"API Response: {response.text}")
 
             if response.status_code == 200:
+                gc.collect()
+                time.sleep(1)
                 entity_info = response.json()
-                
+
                 # Cache entity info
                 try:
                     update_entity_cache(
-                        jti=entity_info.get('jti'), 
-                        sub=entity_info.get('sub')
+                        api_key_id=entity_info.get('jti'),
+                        subject=entity_info.get('sub')
                     )
                     if self.debug:
                         print("💾 Caching entity info")
@@ -166,21 +168,21 @@ class MQTTHandler:
 
         if not self.entity_info.get('jti'):
             if self.debug:
-                print("❌ JTI not found in API claims. Check your API key.")
+                print("❌ API key ID not found in API claims. Check your API key.")
             return False
 
         if not self.entity_info.get('sub'):
             if self.debug:
-                print("❌ Resource path not found in API claims.")
+                print("❌ Subject not found in API claims.")
             return False
 
-        mqtt_host = self.config.get("mqtt_host", "mqtt.tendrl.com")
-        mqtt_port = self.config.get("mqtt_port", 1883)
-        mqtt_ssl = self.config.get("mqtt_ssl", False)
+        mqtt_host = self.config.get("mqtt_host")
+        mqtt_port = self.config.get("mqtt_port")
+        mqtt_ssl = self.config.get("mqtt_ssl")
 
         if self.debug:
             print(f"🔧 MQTT config: {mqtt_host}:{mqtt_port} (SSL: {mqtt_ssl})")
-            
+
         # Validate MQTT host configuration
         if not mqtt_host or mqtt_host.strip() == "":
             if self.debug:
@@ -213,7 +215,6 @@ class MQTTHandler:
                         except Exception as close_err:
                             if self.debug:
                                 print(f"Error disconnecting existing MQTT client: {close_err}")
-                    gc.collect()
                     self._mqtt = MQTTClient(
                         client_id=client_id,
                         server=mqtt_host,
@@ -221,14 +222,17 @@ class MQTTHandler:
                         user=username,
                         password=password,
                         keepalive=300,
-                        ssl=mqtt_ssl
+                        ssl=mqtt_ssl,
+                        ssl_params={"server_hostname": mqtt_host}
                     )
 
                     self._mqtt.set_callback(self._on_message)
 
                     if self.debug:
                         print("Attempting to connect...")
+                    gc.collect()
                     self._mqtt.connect()
+                    gc.collect()
 
                     # Set connection status before attempting subscription
                     self.connected = True
