@@ -18,7 +18,6 @@
         "tendrl/lib/shutil.py",
         "tendrl/lib/websockets.py",
         "tendrl/utils/__init__.py",
-        "tendrl/utils/auth.py",
         "tendrl/utils/util_helpers.py",
         "tendrl/manifest.py"
     ],
@@ -34,10 +33,7 @@
         ["tendrl/queue_manager.py", "github:tendrl-inc-labs/micropython-client/tendrl/queue_manager.py"],
         ["tendrl/mqtt_handler.py", "github:tendrl-inc-labs/micropython-client/tendrl/mqtt_handler.py"],
         ["tendrl/lib/shutil.py", "github:tendrl-inc-labs/micropython-client/tendrl/lib/shutil.py"],
-        ["tendrl/lib/websockets.py", "github:tendrl-inc-labs/micropython-client/tendrl/lib/websockets.py"],
         ["tendrl/utils/__init__.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/__init__.py"],
-        ["tendrl/utils/auth.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/auth.py"],
-        ["tendrl/utils/util_helpers.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/util_helpers.py"],
         ["tendrl/manifest.py", "github:tendrl-inc-labs/micropython-client/tendrl/manifest.py"]
     ]
 } 
