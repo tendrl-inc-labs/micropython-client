@@ -409,14 +409,7 @@ def message_handler(message):
     """Handle incoming messages"""
     msg_type = message.get('msg_type')
     data = message.get('data', {})
-    
-    if msg_type == 'cmd':
-        print(f"Command received: {data}")
-        # Handle commands here
-    elif msg_type == 'heartbeat':
-        print(f"Heartbeat from: {data}")
-    elif msg_type == 'publish':
-        print(f"Published data: {data}")
+    print(f"Published data: {data}")
 
 # Initialize client with callback
 client = Client(
@@ -425,18 +418,6 @@ client = Client(
     callback=message_handler
 )
 ```
-
-### Message Types
-
-The SDK supports various message types:
-
-- **publish**: Standard data publishing
-- **heartbeat**: System status and health information
-- **cmd**: Commands from the platform
-- **fs_cmd_resp**: File system command responses
-- **terminal_cmd_resp**: Terminal command responses
-- **client_cmd_resp**: Client command responses
-- **file**: File transfer messages
 
 ### Topic Structure
 

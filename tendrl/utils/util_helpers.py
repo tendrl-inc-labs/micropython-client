@@ -49,7 +49,6 @@ def make_message(
     }
     return {k: v for k, v in m.items() if v}
 
-
 def get_wifi_status(station):
     import network
 
@@ -75,12 +74,10 @@ def get_wifi_status(station):
         print(f"Error getting connection status: {e}", "ERROR")
         return "Status Error"
 
-
 def get_mac(sta):
     import binascii
     m = binascii.hexlify(sta.config("mac")).decode()
     return ":".join(m[i : i + 2] for i in range(0, 12, 2))
-
 
 def convert(num):
     units = [
@@ -101,11 +98,9 @@ def convert(num):
             suffix = multiple
     return [amount, suffix]
 
-
 def starmap(function, iterable):
     for args in iterable:
         yield function(*args)
-
 
 def ntp_time(retry=0):
     import time
@@ -118,7 +113,6 @@ def ntp_time(retry=0):
             retry += 1
             time.sleep(1)
             ntp_time(retry)
-
 
 def network_connect(ssid, password, max_retries=3, retry=0, debug=False):
     import network
@@ -153,7 +147,6 @@ def network_connect(ssid, password, max_retries=3, retry=0, debug=False):
             station.disconnect()
             station.active(False)
 
-
 def network_scan(station=None):
     import network
 
@@ -187,14 +180,12 @@ def network_scan(station=None):
         )
     return network_list
 
-
 def t_convert(t):
     if t < 1000:
         return f"{round(t, 1)} Milliseconds"
     if 1000 <= t <= 60000:
         return f"{round((t / 1000), 1)} Seconds"
     return f"{round((t / 60000), 1)} Minutes"
-
 
 def free(bytes_only=False):
     import gc
@@ -215,25 +206,23 @@ def free(bytes_only=False):
     if bytes_only:
         return {
             "mem_free": mem_free,
-            "mem_alloc": mem_total,
+            "mem_total": mem_total,
             "disk_free": fs_free,
             "disk_size": fs_size,
         }
     else:
         return {
             "mem_free": convert(mem_free),
-            "mem_alloc": convert(mem_total),
+            "mem_total": convert(mem_total),
             "disk_free": convert(fs_free),
             "disk_size": convert(fs_size),
         }
-
 
 def gen_key():
     import binascii
     import os
 
     return binascii.hexlify(os.urandom(16))
-
 
 def encrypt_str(data, key):
     import cryptolib
@@ -249,7 +238,6 @@ def decrypt_str(data, key):
 
     aes = cryptolib.aes
     return aes(key, 1).decrypt(data).decode().split("\x00")[0]
-
 
 def hash_dir(dir_path):
     import binascii
@@ -268,7 +256,6 @@ def hash_dir(dir_path):
                     print(f"File Hash: {f_hash}\n")
             except OSError as e:
                 print(e)
-
 
 def hash_check(file_hash, filepath):
     import hashlib
@@ -298,7 +285,6 @@ def safe_storage_operation(storage, operation, *args, **kwargs):
         print(f"Error details: {type(e).__name__}: {e}")
         return None
 
-
 def retrieve_offline_messages(storage, debug=False):
     try:
         offline_messages = safe_storage_operation(storage, "query", {"limit": 10})
@@ -316,7 +302,6 @@ def retrieve_offline_messages(storage, debug=False):
         if debug:
             print(f"CRITICAL: Error retrieving offline messages: {e}")
         return []
-
 
 def send_offline_messages(mqtt_handler, messages, max_batch_size=10, debug=False):
     sent_count = 0
