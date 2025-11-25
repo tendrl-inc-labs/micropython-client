@@ -59,10 +59,6 @@ class Client:
         self.managed = managed
         self._user_event_loop = event_loop
         self.config = read_config()
-        if not self.config.get("tendrl_version"):
-            self.config["tendrl_version"] = "0.1.0"
-        if not self.config.get("app_url"):
-            self.config["app_url"] = "https://app.tendrl.com"
         self.network = (
             NetworkManager(self.config, debug, headless=not managed)
             if not managed
@@ -73,10 +69,7 @@ class Client:
             max_batch=max_batch_size,
             debug=debug,
         ) if managed else None
-        self._offline_queue = QueueManager(
-            max_batch=max_batch_size,
-            debug=debug,
-        ) if managed else None
+        self._offline_queue = None  # Lazy-loaded to save memory
         self.debug = debug
         self.check_msg_rate = check_msg_rate
         self.callback = callback
@@ -86,15 +79,20 @@ class Client:
         self._timer_freq = freq
         self._db = None
         self._client_db = None
+        # Store database init params for lazy loading (saves 20-90KB per DB during init)
+        self._db_params = {
+            'offline_storage': offline_storage,
+            'client_db': client_db,
+            'client_db_in_memory': client_db_in_memory,
+            'db_page_size': db_page_size,
+            'max_batch_size': max_batch_size
+        } if managed and BTREE_AVAILABLE else None
         self._last_msg_check = 0
         self._last_heartbeat = 0
         self._last_process_time = 0
         self._last_connect = 0
         self._last_cleanup = 0
         self._proc = False
-        self._e_type = f"mp:{self.config['tendrl_version']}:" + ".".join(
-            [str(i) for i in sys.implementation.version[:-1]]
-        )
         if callback and not callable(callback):
             raise TypeError("callback must be a function accepting dict")
         self._app_timer = None
@@ -106,84 +104,86 @@ class Client:
                     print("✅ Using user-provided event loop for client")
             self._stop_event = asyncio.Event()
             self._tasks = []
-        if BTREE_AVAILABLE and managed:
+        # Databases are lazy-loaded to reduce initial memory footprint
+        if not managed:
+            if debug:
+                print("⚠️ Unmanaged mode - databases disabled")
+        elif not BTREE_AVAILABLE:
+            if debug:
+                print("⚠️ MicroTetherDB not available - databases disabled")
+                print("   Use minimal installation or install full package")
+
+    def _ensure_offline_queue(self):
+        """Lazy-load offline queue to save memory during initialization"""
+        if self._offline_queue is None and self.managed:
+            self._offline_queue = QueueManager(
+                max_batch=self._db_params['max_batch_size'] if self._db_params else 15,
+                debug=self.debug,
+            )
+
+    def _ensure_databases(self):
+        """Lazy-load databases to save 20-90KB per DB during initialization"""
+        if self._db_params is None:
+            return
+        
+        if (self._db is None and self._db_params['offline_storage']) or \
+           (self._client_db is None and self._db_params['client_db']):
             try:
                 database_event_loop = None
-                if mode == "async" and ASYNCIO_AVAILABLE:
+                if self.mode == "async" and ASYNCIO_AVAILABLE:
                     if self._user_event_loop:
                         database_event_loop = self._user_event_loop
-                        if debug:
-                            print("✅ Using user-provided event loop for databases")
                     else:
                         try:
                             database_event_loop = asyncio.get_running_loop()
-                            if debug:
-                                print("✅ Using current running event loop for databases")
                         except RuntimeError:
-                            if debug:
-                                print("⚠️ No running event loop found, databases will create one")
-                if offline_storage:
+                            pass
+                
+                if self._db is None and self._db_params['offline_storage']:
                     try:
                         from tendrl.lib.microtetherdb.db import MicroTetherDB
                         self._db = MicroTetherDB(
                             filename="/lib/tendrl/tether.db",
                             in_memory=False,
-                            btree_pagesize=db_page_size,
+                            btree_pagesize=self._db_params['db_page_size'],
                             event_loop=database_event_loop
                         )
-                        if debug:
+                        if self.debug:
                             print("✅ Offline storage database initialized")
                     except ImportError:
-                        self._db = None
-                        if debug:
+                        if self.debug:
                             print("⚠️ MicroTetherDB not available - offline storage disabled")
-                else:
-                    self._db = None
-                    if debug:
-                        print("⚠️ Offline storage disabled - no message queuing")
-                if client_db:
+                
+                if self._client_db is None and self._db_params['client_db']:
                     try:
                         from tendrl.lib.microtetherdb.db import MicroTetherDB
                         self._client_db = MicroTetherDB(
                             filename="/lib/tendrl/client_db.db",
-                            in_memory=client_db_in_memory,
+                            in_memory=self._db_params['client_db_in_memory'],
                             btree_pagesize=1024,
                             ram_percentage=10,
                             event_loop=database_event_loop
                         )
-                        storage_type = "in-memory" if client_db_in_memory else "file-based"
-                        if debug:
+                        storage_type = "in-memory" if self._db_params['client_db_in_memory'] else "file-based"
+                        if self.debug:
                             print(f"✅ Client database initialized ({storage_type})")
                     except ImportError:
-                        self._client_db = None
-                        if debug:
+                        if self.debug:
                             print("⚠️ MicroTetherDB not available - client database disabled")
-                else:
-                    self._client_db = None
-                    if debug:
-                        print("⚠️ Client database disabled - no local data storage")
             except Exception as e:
-                print(f"❌ Storage initialization error: {e}")
-                self._db = None
-                self._client_db = None
-        elif not managed:
-            if debug:
-                print("⚠️ Unmanaged mode - databases disabled")
-            self._db = None
-            self._client_db = None
-        else:
-            if debug:
-                print("⚠️ MicroTetherDB not available - databases disabled")
-                print("   Use minimal installation or install full package")
-            self._db = None
-            self._client_db = None
+                if self.debug:
+                    print(f"❌ Storage initialization error: {e}")
 
     @property
     def storage(self):
+        if self._db_params and self._db is None:
+            self._ensure_databases()
         return self._db
 
     @property
     def client_db(self):
+        if self._db_params and self._client_db is None:
+            self._ensure_databases()
         return self._client_db
 
     def _process_message(self, msg):
@@ -243,7 +243,11 @@ class Client:
             if not isinstance(message, dict):
                 message = {"data": message}
             message["_offline_ttl"] = message.get("_offline_ttl", db_ttl)
-            result = self._offline_queue.put(message)
+            if self.managed:
+                self._ensure_offline_queue()
+                result = self._offline_queue.put(message)
+            else:
+                result = False
             if not self.client_enabled or not self.storage:
                 return result
             try:
@@ -509,7 +513,9 @@ class Client:
             async def async_wrapped_function(*args, **kwargs):
                 try:
                     if not self.client_enabled:
-                        self._connect()
+                        if not self._connect():
+                            if self.debug:
+                                print("Failed to establish connection before queuing message")
                     result = await func(*args, **kwargs)
                     message = make_message(
                         result,
@@ -517,10 +523,14 @@ class Client:
                         tags=tags,
                         entity=entity,
                     )
-                    queue_result = self.queue.put(message)
-                    if not queue_result or not self.client_enabled:
-                        if write_offline:
+                    # Only queue if connection is enabled (connection attempt was successful)
+                    if self.client_enabled:
+                        queue_result = self.queue.put(message)
+                        if not queue_result and write_offline:
                             self._store_offline_message(message, db_ttl)
+                    elif write_offline:
+                        # Connection failed, store offline if requested
+                        self._store_offline_message(message, db_ttl)
                     return result
                 except Exception as e:
                     if write_offline:
@@ -536,7 +546,9 @@ class Client:
             def sync_wrapped_function(*args, **kwargs):
                 try:
                     if not self.client_enabled:
-                        self._connect()
+                        if not self._connect():
+                            if self.debug:
+                                print("Failed to establish connection before queuing message")
                     result = func(*args, **kwargs)
                     message = make_message(
                         result,
@@ -544,10 +556,14 @@ class Client:
                         tags=tags,
                         entity=entity,
                     )
-                    queue_result = self.queue.put(message)
-                    if not queue_result or not self.client_enabled:
-                        if write_offline:
+                    # Only queue if connection is enabled (connection attempt was successful)
+                    if self.client_enabled:
+                        queue_result = self.queue.put(message)
+                        if not queue_result and write_offline:
                             self._store_offline_message(message, db_ttl)
+                    elif write_offline:
+                        # Connection failed, store offline if requested
+                        self._store_offline_message(message, db_ttl)
                     return result
                 except Exception as e:
                     if write_offline:
@@ -710,6 +726,9 @@ class Client:
                 print(f"Error cleaning up network: {e}")
 
     def _process_offline_queue(self):
+        if not self.managed:
+            return 0
+        self._ensure_offline_queue()
         if not self.storage or len(self._offline_queue) == 0:
             return 0
         if self._offline_queue.is_processing:

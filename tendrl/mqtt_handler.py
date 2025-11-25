@@ -6,8 +6,14 @@ import gc
 
 
 from umqtt.simple import MQTTClient, MQTTException
-from .config_manager import update_entity_cache , get_entity_cache
+from .config_manager import (
+    update_entity_cache, 
+    get_entity_cache, 
+    _compute_api_key_hash,
+    read_config
+)
 
+TENDRL_VERSION = "tendrl-micropython/0.1.0"
 
 class MQTTHandler:
     def __init__(self, config, debug=False, callback=None):
@@ -24,85 +30,139 @@ class MQTTHandler:
         self.callback = callback
 
     def _fetch_entity_info(self):
+        response = None
         try:
-            api_key = self.config.get("api_key")
+            # Read config.json directly to check for API key changes after initialization
+            current_config = read_config()
+            api_key = current_config.get("api_key")
             if not api_key:
                 if self.debug:
                     print("❌ Missing API key in configuration")
                 return False
 
-            # Try to get cached entity info from separate cache file
-            cached_api_key_id, cached_subject = get_entity_cache()
+            self.config.update(current_config)
+            api_key_hash = _compute_api_key_hash(api_key)
+
+            cached_api_key_id, cached_subject = get_entity_cache(
+                api_key_hash, 
+                check_config_file=True,
+                debug=self.debug
+            )
 
             if cached_api_key_id and cached_subject:
-                if self.debug:
-                    print("📋 Using cached entity info")
-                self.entity_info = {
-                    'jti': cached_api_key_id,
-                    'sub': cached_subject
-                }
-                return True
-
-            if self.debug:
-                print("🌐 Fetching entity info from API...")
+                if (isinstance(cached_api_key_id, str) and 
+                    isinstance(cached_subject, str) and
+                    len(cached_api_key_id.strip()) > 0 and
+                    len(cached_subject.strip()) > 0):
+                    self.entity_info = {
+                        'jti': cached_api_key_id,
+                        'sub': cached_subject
+                    }
+                    if self.debug:
+                        print("✅ Using cached entity info")
+                    return True
+                else:
+                    if self.debug:
+                        print("⚠️ Cached entity info invalid - fetching fresh")
 
             api_base_url = self.config.get("app_url", "https://app.tendrl.com")
-
-            # Ensure the URL has a protocol prefix
             if not api_base_url.startswith(('http://', 'https://')):
                 api_base_url = f"http://{api_base_url}"
-
-            if self.debug:
-                print(f"API Base URL: {api_base_url}")
 
             headers = {
                 'Authorization': f'Bearer {api_key}',
                 'Content-Type': 'application/json'
             }
 
-            url = f'{api_base_url}/api/claims'
-            if self.debug:
-                print(f"Fetching entity info from: {url}")
+            url = f'{api_base_url}/api/claims?e_type={TENDRL_VERSION}'
 
+            # GC before request to maximize available memory (critical for ESP32-WROOM)
             gc.collect()
             response = requests.get(url, headers=headers)
 
-            if self.debug:
-                print(f"API Response Status: {response.status_code}")
-                print(f"API Response: {response.text}")
-
             if response.status_code == 200:
-                gc.collect()
-                time.sleep(1)
-                entity_info = response.json()
+                # Parse JSON and close response immediately to free HTTP/SSL buffers
+                try:
+                    entity_info = response.json()
+                except Exception as json_err:
+                    if self.debug:
+                        print(f"❌ Failed to parse JSON response: {json_err}")
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
+                    response = None
+                    gc.collect()
+                    return False
+                finally:
+                    # Close response immediately to free 30-70KB of HTTP/SSL buffers
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
+                    response = None
+                    gc.collect()
+                
+                jti = entity_info.get('jti')
+                sub = entity_info.get('sub')
+                
+                if not jti or not sub:
+                    if self.debug:
+                        print("❌ Invalid entity info from API - missing jti or sub")
+                    return False
+                
+                if not isinstance(jti, str) or not isinstance(sub, str):
+                    if self.debug:
+                        print("❌ Invalid entity info from API - jti or sub not strings")
+                    return False
+                
+                if len(jti.strip()) == 0 or len(sub.strip()) == 0:
+                    if self.debug:
+                        print("❌ Invalid entity info from API - empty jti or sub")
+                    return False
 
-                # Cache entity info
                 try:
                     update_entity_cache(
-                        api_key_id=entity_info.get('jti'),
-                        subject=entity_info.get('sub')
+                        api_key_id=jti,
+                        subject=sub,
+                        api_key_hash=api_key_hash
                     )
                     if self.debug:
-                        print("💾 Caching entity info")
+                        print("✅ Entity info cached successfully")
                 except Exception as cache_err:
                     if self.debug:
-                        print(f"Error updating entity cache: {cache_err}")
+                        print(f"⚠️ Error updating entity cache (non-critical): {cache_err}")
 
-                self.entity_info = entity_info
+                self.entity_info = {
+                    'jti': jti,
+                    'sub': sub
+                }
                 return True
             else:
+                status_code = response.status_code
                 if self.debug:
-                    print(f"❌ Failed to fetch entity info: {response.status_code}")
+                    print(f"❌ Failed to fetch entity info: {status_code}")
+                try:
+                    response.close()
+                except Exception:
+                    pass
+                response = None
+                gc.collect()
                 return False
         except Exception as e:
             if self.debug:
                 print(f"❌ Entity info fetch error: {e}")
+            if response:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+                gc.collect()
             return False
 
 
 
     def _build_publish_topic(self):
-        """Build the publish topic, which is always the same for all message types."""
         if not self.entity_info:
             raise Exception('Entity info not available')
 
@@ -121,7 +181,6 @@ class MQTTHandler:
         return f"{account}/{region}/{jti}/publish"
 
     def _build_messages_topic(self):
-        """Build the messages topic for subscribing to incoming messages."""
         if not self.entity_info:
             raise Exception('Entity info not available')
 
@@ -159,8 +218,6 @@ class MQTTHandler:
         self._consecutive_errors = 0
 
         if not self._fetch_entity_info():
-            if self.debug:
-                print("❌ Failed to fetch entity information")
             return False
 
         if not self.entity_info.get('jti'):
@@ -177,10 +234,6 @@ class MQTTHandler:
         mqtt_port = self.config.get("mqtt_port")
         mqtt_ssl = self.config.get("mqtt_ssl")
 
-        if self.debug:
-            print(f"🔧 MQTT config: {mqtt_host}:{mqtt_port} (SSL: {mqtt_ssl})")
-
-        # Validate MQTT host configuration
         if not mqtt_host or mqtt_host.strip() == "":
             if self.debug:
                 print("❌ MQTT host is empty or not configured")
@@ -195,12 +248,6 @@ class MQTTHandler:
         client_id = self.entity_info['sub']
         username = self.entity_info['jti']
         password = api_key
-
-        if self.debug:
-            print(f"Connecting to MQTT broker: {mqtt_host}:{mqtt_port}")
-            print(f"Client ID: {client_id}")
-            print(f"Username: {username}")
-            print(f"TLS: {mqtt_ssl}")
 
         try:
             max_retries = 3
@@ -225,13 +272,10 @@ class MQTTHandler:
 
                     self._mqtt.set_callback(self._on_message)
 
-                    if self.debug:
-                        print("Attempting to connect...")
                     gc.collect()
                     self._mqtt.connect()
                     gc.collect()
 
-                    # Set connection status before attempting subscription
                     self.connected = True
                     self._consecutive_errors = 0
 
@@ -241,8 +285,6 @@ class MQTTHandler:
                         if self.debug:
                             print(f"⚠️ Subscription warning (non-critical): {sub_err}")
 
-                    if self.debug:
-                        print(f"✅ MQTT connected successfully to {mqtt_host}")
                     return True
 
                 except MQTTException as mqtt_err:
@@ -281,12 +323,8 @@ class MQTTHandler:
             return
 
         try:
-            # Subscribe to messages topic to receive commands/notifications
             messages_topic = self._build_messages_topic()
             self._mqtt.subscribe(messages_topic, qos=1)
-
-            if self.debug:
-                print(f"📡 Subscribed to messages topic: {messages_topic}")
 
         except Exception as e:
             if self.debug:
@@ -294,11 +332,7 @@ class MQTTHandler:
 
     def _on_message(self, topic, msg):
         try:
-            topic_str = topic.decode('utf-8')
             msg_str = msg.decode('utf-8')
-
-            if self.debug:
-                print(f"📨 Received message on topic {topic_str}: {msg_str}")
 
             try:
                 message_data = json.loads(msg_str)
@@ -322,8 +356,6 @@ class MQTTHandler:
         self.connected = False
         try:
             if self._mqtt:
-                if self.debug:
-                    print("Disconnecting existing MQTT client")
                 self._mqtt.disconnect()
         except Exception as close_err:
             if self.debug:
@@ -341,7 +373,6 @@ class MQTTHandler:
 
         try:
             p = json.dumps(data)
-            # Always use the publish topic
             topic = self._build_publish_topic()
 
             self._mqtt.publish(topic, p)
@@ -392,9 +423,6 @@ class MQTTHandler:
         connection_error_count = 0
         total_messages = len(messages)
 
-        if self.debug:
-            print(f"📦 Sending batch of {total_messages} messages in {len(chunks)} chunks")
-
         for chunk_idx, chunk in enumerate(chunks):
             try:
                 for msg in chunk:
@@ -441,41 +469,9 @@ class MQTTHandler:
     def cleanup(self):
         try:
             if self._mqtt:
-                if self.debug:
-                    print("🔌 Disconnecting MQTT client")
                 self._mqtt.disconnect()
                 self._mqtt = None
             self.connected = False
-            if self.debug:
-                print("✅ MQTT cleanup completed")
         except Exception as e:
             if self.debug:
                 print(f"❌ Error during MQTT cleanup: {e}")
-
-    def send_file_system_command_response(self, output="", error="", exit_code=0, request_id=None):
-        response_data = {
-            "output": output,
-            "error": error,
-            "exitCode": exit_code
-        }
-        if request_id:
-            response_data["request_id"] = request_id
-        return self.publish_message(response_data)
-
-    def send_terminal_command_response(self, output="", error="", exit_code=0, request_id=None):
-        response_data = {
-            "output": output,
-            "error": error,
-            "exitCode": exit_code
-        }
-        if request_id:
-            response_data["request_id"] = request_id
-        return self.publish_message(response_data)
-
-    def send_client_command_response(self, data, request_id=None):
-        if request_id:
-            data["request_id"] = request_id
-        return self.publish_message(data)
-
-    def send_file_transfer(self, file_data):
-        return self.publish_message(file_data)
