@@ -1,7 +1,53 @@
 import gc
 import time
-from .utils.util_helpers import Queue, QueueFull
+import collections
 
+class QueueFull(Exception):
+    pass
+
+
+class Queue:
+    __slots__ = ("max_len", "_queue")
+
+    def __init__(self, max_len: int = 300):
+        self.max_len = max_len
+        self._queue = self._new_queue()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            return self._queue.popleft()
+        except IndexError:
+            raise StopIteration
+
+    def __len__(self):
+        return len(self._queue)
+
+    def _new_queue(self):
+        return collections.deque((), self.max_len, 1)
+
+    def put(self, item):
+        try:
+            self._queue.append(item)
+        except IndexError:
+            raise QueueFull()
+
+    def get(self):
+        try:
+            return self._queue.popleft()
+        except IndexError:
+            return None
+
+    def peek(self):
+        try:
+            return self._queue[0]
+        except IndexError:
+            return None
+
+    def clear(self):
+        self._queue = self._new_queue()
 
 class QueueManager:
     def __init__(
@@ -31,21 +77,19 @@ class QueueManager:
             self.put(msg)
         except Exception as e:
             if self.debug:
-                print(f"Queue full error: {e}")
+                print(f"❌ Queue full error: {e}")
             return False
 
     def process_batch(self):
         if self.is_processing:
             if self.debug:
-                print("Already processing") #TODO: Remove
+                print("Already processing")
             return None
         if not self.queue:
             return None
         self.is_processing = True
         try:
-            # Calculate max messages based on memory
             max_messages = min(round((gc.mem_free() / 1000) * 3), self.max_batch_size)
-            # Collect all messages up to max_messages
             batch = []
             while len(self.queue) > 0 and len(batch) < max_messages:
                 msg = next(self.queue)
@@ -53,13 +97,13 @@ class QueueManager:
                     batch.append(msg)
             if batch:
                 if self.debug:
-                    print(f"Collected {len(batch)} messages, queue size: {len(self.queue)}") #TODO: Remove
+                    print(f"Collected {len(batch)} messages, queue size: {len(self.queue)}")
                 gc.collect()
                 return batch
             return None
         except Exception as e:
             if self.debug:
-                print(f"Batch error: {e}")
+                print(f"❌ Batch error: {e}")
             for msg in reversed(batch):
                 self.queue.put(msg)
             return None

@@ -1,28 +1,45 @@
 # Tendrl MicroPython Client
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/tendrl-inc/clients/nano_agent)
-![MicroPython](https://img.shields.io/badge/MicroPython-1.15%2B-blue) ![License](https://img.shields.io/badge/License-Proprietary-red)
+![MicroPython](https://img.shields.io/badge/MicroPython-1.19%2B-blue) ![License](https://img.shields.io/badge/License-Proprietary-red)
 
 A resource-optimized SDK for IoT and embedded devices, featuring a minimal memory footprint and hardware-specific optimizations.
 
 ## Key Features
 
 - **Minimal Memory Footprint**: Optimized for devices with limited RAM
-- **API**: Easy to use in resource-constrained environments
+- **MQTT Communication**: Reliable protocol with QoS 1 delivery for IoT devices
+- **Automatic Entity Discovery**: Fetches entity info from API using API key
+- **Simple Callback System**: Easy message handling with user-defined callbacks
 - **Configuration via JSON**: Uses config.json for device configuration
 - **BTree-based Offline Storage**: Efficient storage with minimal overhead
 - **Hardware Watchdog Integration**: Ensures reliability in unstable environments
-- **WebSocket Communication**: Efficient protocol for IoT devices
 - **Flexible Operation Modes**: Support for both managed and unmanaged operation
+- **TLS Support**: Secure connections with proper SSL context
 
 ## Prerequisites
 
 Before installing the Tendrl SDK, you need to have MicroPython installed on your device. Follow the official MicroPython setup guide for your specific board:
 
 - [ESP32 Setup Guide](https://docs.micropython.org/en/latest/esp32/tutorial/intro.html#esp32-intro)
-- [ESP8266 Setup Guide](https://docs.micropython.org/en/latest/esp8266/tutorial/intro.html)
-    (ESP8266 RAM limitations make it difficult to use as a library alone. Freeze into firmware or use new v1.25.0 ROMFS build)
 - [Raspberry Pi Pico W Setup Guide](https://docs.micropython.org/en/latest/rp2/quickref.html)
+
+### Device Compatibility
+
+**✅ Recommended Devices:**
+- **ESP32-WROOM with PSRAM** - Excellent (520 KB RAM + PSRAM, no fragmentation issues)
+- **ESP32-S2/S3** - Excellent (newer architecture, better memory management)
+- **ESP32-C3** - Good (sufficient RAM, modern design)
+- **Raspberry Pi Pico W** - Good (264 KB RAM, different memory architecture)
+
+**❌ Not Recommended:**
+- **ESP8266** - Insufficient RAM (80 KB total, only ~40-50 KB available for user code)
+- **ESP32-WROOM without PSRAM** - TLS fragmentation issues (TLS handshakes require large contiguous memory blocks that may not be available due to heap fragmentation, even with sufficient total RAM)
+
+**Memory Requirements:**
+- **Minimum RAM:** 150 KB total (125 KB absolute minimum)
+- **Client Runtime:** ~57 KB steady state
+- **Flash Storage:** ~100 KB (minimal package) or ~172 KB (full package with database)
 
 ## Installation
 
@@ -34,12 +51,12 @@ The Tendrl SDK offers two installation options to suit different device constrai
 |---------|------------------|---------------------|
 | **Client & Networking** | ✅ | ✅ |
 | **Message Publishing** | ✅ | ✅ |
-| **WebSocket Communication** | ✅ | ✅ |
+| **MQTT Communication** | ✅ | ✅ |
 | **Client Database** | ✅ | ❌ |
 | **Offline Storage** | ✅ | ❌ |
 | **TTL Management** | ✅ | ❌ |
 | **Rich Queries** | ✅ | ❌ |
-| **Flash Storage** | ~150KB | ~100KB |
+| **Flash Storage** | ~172KB | ~100KB |
 
  &nbsp;
 
@@ -164,7 +181,7 @@ client.publish(
 
 ## Configuration
 
-The SDK uses a configuration file approach rather than constructor parameters. Create a `config.json` file in your device's root directory:
+Create a `config.json` file in your device's root directory:
 
 ```json
 {
@@ -175,7 +192,11 @@ The SDK uses a configuration file approach rather than constructor parameters. C
 }
 ```
 
-The SDK merges this user configuration with its internal defaults.
+**Fields:**
+- `api_key` (required): Your Tendrl API key
+- `wifi_ssid` (required): WiFi network name
+- `wifi_pw` (required): WiFi password
+- `reset` (optional): Set to `true` to clear cached entity info (useful with watchdog)
 
 ## Quick Start
 
@@ -185,16 +206,20 @@ from tendrl import Client
 # Initialize client - configuration is loaded from config.json
 client = Client()
 
-# Define data collection function
-@client.tether(tags=["sensors"]) #optional tags for Flows(automations)
+# Start the client - connect WiFi and tether queue
+client.start()
+
+# Simplest way: use tether decorator to automatically send function return values
+# Function must return dict or str
+@client.tether(tags=["sensors"])  # Optional tags for Flows (automations)
 def read_sensors():
     return {
         "temperature": 25.5,
         "humidity": 60.0
     }
 
-# Start the client - connect WiFi and tether queue
-client.start()
+# Call your function - data is automatically collected and sent
+read_sensors()  # Data is automatically queued and sent
 ```
 
 ## Client Initialization
@@ -256,12 +281,16 @@ client = Client(
 # Start the client - handles WiFi and connection
 client.start()
 
-# Data will be queued and sent in batches
-@client.tether(write_offline=True)
+# Simplest way: use tether decorator to automatically send function return values
+# Function must return dict or str
+@client.tether(write_offline=True, tags=["sensors"])
 def read_sensors():
     return {"temperature": 25.5}
 
-# Messages are stored offline if connection fails
+# Call your function - data is automatically collected and sent
+read_sensors()  # Data is queued and sent in batches, stored offline if connection fails
+
+# Alternative: manual publishing (for one-off messages)
 client.publish(
     data={"status": "operational"},
     write_offline=True,
@@ -311,8 +340,7 @@ wlan.connect("your_ssid", "your_password")
 
 # SDK will use existing connection
 client.publish(
-    data={"status": "connected"},
-    wait_response=True  # Wait for server response
+    data={"status": "connected"}
 )
 ```
 
@@ -334,24 +362,73 @@ Choose unmanaged mode when:
 - You're running short-lived operations
 - You want minimal overhead
 
-### Configuration Requirements
 
-Both modes require:
+## MQTT Communication
+
+The SDK uses MQTT for reliable communication with the Tendrl platform. Key features:
+
+### Automatic Entity Discovery with Caching
+
+The client automatically fetches entity information from the API using your API key and caches it for efficiency:
+
+```python
+from tendrl import Client
+
+# Client automatically fetches entity info on first connection
+# Subsequent connections use cached JTI and subject
+client = Client(debug=True)
+client.start()
+
+# Entity info is used for:
+# - MQTT topic structure: <account>/<region>/<jti>/<action>
+# - Authentication with MQTT broker
+# - Message routing
+
+# Cached data is automatically cleared if API credentials become invalid
+```
+
+### Message Callback System
+
+Handle incoming messages with a simple callback function:
+
+```python
+def message_handler(message):
+    """Handle incoming messages"""
+    msg_type = message.get('msg_type')
+    data = message.get('data', {})
+    print(f"Published data: {data}")
+
+# Initialize client with callback
+client = Client(
+    mode="sync",
+    debug=True,
+    callback=message_handler
+)
+```
+
+### Topic Structure
+
+Messages are published to topics following this structure:
+
+```sh
+<account>/<region>/<jti>/<action>
+```
+
+Example: `1001/us-east/entity:gateway/publish`
+
+### TLS Support
+
+Secure connections are supported with automatic SSL context creation:
 
 ```json
 {
-    "api_key": "your_api_key",
+    "mqtt_host": "mqtt.tendrl.com",
+    "mqtt_port": 443,
+    "mqtt_ssl": true
 }
 ```
 
-Managed mode additionally requires:
-
-```json
-{
-    "wifi_ssid": "your_wifi_network",
-    "wifi_pw": "your_wifi_password"
-}
-```
+For development environments, self-signed certificates are automatically allowed when using localhost.
 
 ## Data Collection Methods
 
@@ -359,6 +436,7 @@ Managed mode additionally requires:
 
 ```python
 # Basic usage with tags
+# Function must return dict or str
 @client.tether(tags=["environment"])
 def collect_environment():
     return {
@@ -368,6 +446,7 @@ def collect_environment():
     }
 
 # With offline storage
+# Function must return dict or str
 @client.tether(write_offline=True, db_ttl=3600, tags=["critical"])
 def collect_critical_data():
     return {
@@ -406,17 +485,11 @@ def message_handler(message):
     return 0  # Return non-zero if processing fails
 
 # Initialize client with callback
-client = Client(callback=message_handler)
-
-# Or set callback after initialization
-client.set_message_callback(message_handler)
-
-# Configure checking behavior (optional)
-client.set_message_check_rate(5)   # Check every 5 seconds (default: 5)
-client.set_message_check_limit(10) # Max messages per check (default: 1)
-
-# Manual message check (works in any mode)
-messages = client.check_messages()
+client = Client(
+    callback=message_handler,
+    check_msg_rate=5  # Check for messages every 5 seconds (default: 5)
+)
+client.start()
 ```
 
 ### IncomingMessage Structure
@@ -440,11 +513,10 @@ messages = client.check_messages()
 
 #### How It Works
 
-1. **Background Checking**: In managed mode, the SDK automatically checks for messages every 5 seconds (configurable)
-2. **Manual Checking**: You can call `check_messages()` manually in any mode
-3. **Callback Execution**: Your callback function is called for each incoming message
-4. **Error Handling**: Failed callbacks don't stop other message processing
-5. **Connectivity Aware**: Automatically handles network failures and updates connectivity state
+1. **Background Checking**: In managed mode, the SDK automatically checks for messages every 5 seconds (configurable via `check_msg_rate` parameter)
+2. **Callback Execution**: Your callback function is called for each incoming message
+3. **Error Handling**: Failed callbacks don't stop other message processing
+4. **Connectivity Aware**: Automatically handles network failures and updates connectivity state
 
 ## Asynchronous Mode
 
@@ -471,20 +543,30 @@ async def main():
     )
 
     # Register an async tether
+    # Function must return dict or str
     @client.tether(tags=["async_sensors"])
     async def async_sensor_tether():
         data = await collect_async_data()
         return data
 
-    # Start the client asynchronously
-    await client.start()
+    # Start the client (runs in background)
+    client.start()
 
-    # Manually publish async data
-    await client.async_publish(
+    # Manually publish data (works in async mode too)
+    client.publish(
         data={"status": "operational"},
         tags=["system"],
         entity="device-async-123"
     )
+    
+    # Call your tether-decorated function
+    await async_sensor_tether()
+    
+    # Keep running
+    await asyncio.sleep(30)
+    
+    # Stop the client
+    await client.async_stop()
 
 # Run the async main function
 asyncio.run(main())
@@ -499,9 +581,9 @@ asyncio.run(main())
 
 **Note**: Async mode requires:
 
-- MicroPython 1.15+ with asyncio support
-- Devices with sufficient RAM (recommended 256KB+)
-- Platforms like ESP32 with native asyncio
+- MicroPython 1.19.0+ with asyncio support
+- Devices with sufficient RAM (recommended 150KB+ for reliable TLS)
+- Platforms like ESP32-S2/S3 or ESP32-WROOM with PSRAM (for best async performance)
 
 ### Event Loop Integration
 
@@ -559,27 +641,8 @@ asyncio.run(main())
 client = Client(
     mode="async",           # Enable async mode
     event_loop=your_loop,   # Optional: use your event loop
-    async_timeout=10,       # Global async operation timeout
-    max_async_tasks=5,      # Maximum concurrent async tasks
-    async_retry_count=3,    # Number of retry attempts for async operations
+    debug=True
 )
-```
-
-### Handling Async Errors
-
-```python
-async def error_handling_example():
-    try:
-        await client.async_publish(
-            data={"critical": "sensor_data"},
-            tags=["error_test"]
-        )
-    except AsyncTimeoutError:
-        # Handle async timeout
-        print("Async operation timed out")
-    except NetworkError:
-        # Handle network-related async errors
-        print("Network error in async mode")
 ```
 
 ## Database Operations
@@ -617,24 +680,6 @@ client.db_cleanup()
 - **Memory Efficient**: Configurable RAM usage
 - **Production Ready**: Comprehensive error handling and test coverage
 
-## Configuration Management
-
-You can update the configuration programmatically:
-
-```python
-from tendrl.config_manager import update_config, read_config
-
-# Update specific configuration values
-update_config(
-    api_key="new_api_key",
-    wifi_ssid="new_network",
-    wifi_pw="new_password"
-)
-
-# Read current configuration
-config = read_config()
-print(f"Current API key: {config['api_key']}")
-```
 
 ## Hardware Integration
 
@@ -663,6 +708,16 @@ else:
     print("Not connected")
 ```
 
+### Stop the client
+
+```python
+# Stop the client (sync mode)
+client.stop()
+
+# Stop the client (async mode)
+await client.async_stop()
+```
+
 ## Memory Management
 
 The SDK is optimized for memory-constrained devices:
@@ -680,85 +735,26 @@ print(f"Free memory: {free_mem} bytes")
 
 ## Platform Compatibility
 
-- MicroPython 1.15+
-- ESP32, Raspberry Pi Pico W, STM32, nRF52
-- Memory requirement: ~100KB RAM minimum (much less RAM needed is using frozen or in ROMFS)
+### Supported Platforms
 
-## Installation Options
+- **MicroPython:** 1.19.0 or higher
+- **Recommended:** ESP32-WROOM (with PSRAM), ESP32-S2/S3, ESP32-C3, Raspberry Pi Pico W
+- **Not Recommended:** ESP8266, ESP32-WROOM (without PSRAM)
 
-### Full Installation (Recommended)
+### System Requirements
 
-Includes MicroTetherDB for local data storage and caching:
+**Memory (RAM):**
+- **Minimum Recommended:** 150 KB total RAM
+- **Client Runtime:** ~57 KB steady state
+- **TLS Overhead:** ~3-4 KB
+- **Safety Margin:** ~20-30 KB for application code and buffers
 
-```python
-# Run on your MicroPython device
-import mip
-mip.install("github:tendrl-inc-labs/micropython-client/package.json", target="/lib")
-```
+**Storage (Flash):**
+- **Minimal Package:** ~100 KB (without database features)
+- **Full Package:** ~172 KB (with MicroTetherDB database)
 
-### Minimal Installation
+**Note:** ESP32-WROOM without PSRAM may experience TLS connection failures due to memory fragmentation, even with sufficient total RAM. TLS handshakes require large contiguous memory blocks (20-40 KB) that may not be available after heap fragmentation.
 
-Excludes MicroTetherDB to save ~50KB flash space:
-
-```python
-# Run on your MicroPython device  
-import mip
-mip.install("github:tendrl-inc-labs/micropython-client/package-minimal.json", target="/lib")
-```
-
-### Using Install Script
-
-```python
-# Edit INSTALL_DB variable in install_script.py, then run:
-exec(open("install_script.py").read())
-```
-
-**Configuration**: Edit the `INSTALL_DB` variable at the top of `install_script.py`:
-
-- `INSTALL_DB = True` → Full installation with MicroTetherDB (default)
-- `INSTALL_DB = False` → Minimal installation without database (saves ~50KB)
-
-### With Database (Full Installation)
-
-```python
-from tendrl import Client
-
-# Full featured client (default)
-client = Client(
-    client_db=True,           # Enable client database
-    client_db_in_memory=True, # Fast in-memory client DB
-    offline_storage=True      # Enable offline message storage
-)
-
-# Persistent client database
-client = Client(
-    client_db=True, 
-    client_db_in_memory=False  # File-based client DB
-)
-
-# Minimal database usage (client DB only)
-client = Client(
-    client_db=True,
-    offline_storage=False  # Disable offline storage to save memory
-)
-
-# Use local database for caching
-client.db_put({"sensor": "temp", "value": 23.5}, ttl=3600)
-data = client.db_get(key)
-results = client.db_query({"sensor": "temp"})
-```
-
-### Without Database (Minimal Installation)
-
-```python
-from tendrl import Client
-
-# Create client without database features
-client = Client(client_db=False, offline_storage=False)
-
-# Direct publishing only
-client.publish({"sensor": "temp", "value": 23.5})
-```
 
 ## Features
 

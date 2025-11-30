@@ -4,5 +4,8 @@
     "api_key": "",
     "wifi_ssid":"",
     "wifi_pw": "",
-    "reset": false
+    "reset": false,
+    "mqtt_host": "mqtt.tendrl.com",
+    "mqtt_port": 443,
+    "mqtt_ssl": true
 }

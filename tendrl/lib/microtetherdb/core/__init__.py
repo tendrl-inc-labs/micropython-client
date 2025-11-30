@@ -1,3 +1,1 @@
-"""
-Core components for MicroTetherDB
-""" 
+

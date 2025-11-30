@@ -1,15 +1,5 @@
-import binascii
-import collections
-import gc
-import hashlib
-import os
-import time
-
-import cryptolib
-import network
-
-
 def iso8601(timestamp=None):
+    import time
     if timestamp is None:
         timestamp = time.gmtime()
     return "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z".format(
@@ -22,6 +12,7 @@ def iso8601(timestamp=None):
     )
 
 def parse_iso8601(iso8601_str):
+    import time
     if not iso8601_str:
         return 0
     try:
@@ -39,8 +30,8 @@ def make_message(
     tags=None,
     entity="",
     timestamp=None,
-    wait_response=False,
 ):
+    import time
     if not isinstance(data, (str, dict)):
         raise TypeError("Allowed types: ['str', 'dict']")
     if not tags:
@@ -49,8 +40,6 @@ def make_message(
         if not all(isinstance(i, str) for i in tags):
             raise TypeError("tags must be of type 'str'")
     context = {"tags": tags} if tags else {}
-    if wait_response and not entity:
-        context["wait"] = True
     m = {
         "msg_type": msg_type,
         "data": data,
@@ -60,8 +49,9 @@ def make_message(
     }
     return {k: v for k, v in m.items() if v}
 
-
 def get_wifi_status(station):
+    import network
+
     status_map = {
         network.STAT_IDLE: "Idle",
         network.STAT_CONNECTING: "Connecting",
@@ -84,11 +74,10 @@ def get_wifi_status(station):
         print(f"Error getting connection status: {e}", "ERROR")
         return "Status Error"
 
-
 def get_mac(sta):
+    import binascii
     m = binascii.hexlify(sta.config("mac")).decode()
     return ":".join(m[i : i + 2] for i in range(0, 12, 2))
-
 
 def convert(num):
     units = [
@@ -109,14 +98,13 @@ def convert(num):
             suffix = multiple
     return [amount, suffix]
 
-
 def starmap(function, iterable):
     for args in iterable:
         yield function(*args)
 
-
 def ntp_time(retry=0):
-    # could I save in the database a key/value of ntp time and time.time()?
+    import time
+
     if retry < 4:
         try:
             import ntptime
@@ -126,8 +114,10 @@ def ntp_time(retry=0):
             time.sleep(1)
             ntp_time(retry)
 
-
 def network_connect(ssid, password, max_retries=3, retry=0, debug=False):
+    import network
+    import time
+
     try:
         station = network.WLAN(network.STA_IF)
         station.active(True)
@@ -157,8 +147,9 @@ def network_connect(ssid, password, max_retries=3, retry=0, debug=False):
             station.disconnect()
             station.active(False)
 
-
 def network_scan(station=None):
+    import network
+
     if station:
         station.disconnect()
     else:
@@ -189,7 +180,6 @@ def network_scan(station=None):
         )
     return network_list
 
-
 def t_convert(t):
     if t < 1000:
         return f"{round(t, 1)} Milliseconds"
@@ -197,8 +187,10 @@ def t_convert(t):
         return f"{round((t / 1000), 1)} Seconds"
     return f"{round((t / 60000), 1)} Minutes"
 
-
 def free(bytes_only=False):
+    import gc
+    import os
+
     gc.collect()
 
     mem_free = gc.mem_free()
@@ -214,24 +206,27 @@ def free(bytes_only=False):
     if bytes_only:
         return {
             "mem_free": mem_free,
-            "mem_alloc": mem_total,
+            "mem_total": mem_total,
             "disk_free": fs_free,
             "disk_size": fs_size,
         }
     else:
         return {
             "mem_free": convert(mem_free),
-            "mem_alloc": convert(mem_total),
+            "mem_total": convert(mem_total),
             "disk_free": convert(fs_free),
             "disk_size": convert(fs_size),
         }
 
-
 def gen_key():
+    import binascii
+    import os
+
     return binascii.hexlify(os.urandom(16))
 
+def encrypt_str(data, key):
+    import cryptolib
 
-def encrypt_str(data, key):  # key = gen_key()
     aes = cryptolib.aes
     return aes(key, 1).encrypt(
         data.encode("utf-8") + (b"\x00" * ((16 - (len(data) % 16)) % 16))
@@ -239,11 +234,16 @@ def encrypt_str(data, key):  # key = gen_key()
 
 
 def decrypt_str(data, key):
+    import cryptolib
+
     aes = cryptolib.aes
     return aes(key, 1).decrypt(data).decode().split("\x00")[0]
 
-
 def hash_dir(dir_path):
+    import binascii
+    import hashlib
+    import os
+
     ilist = os.ilistdir
     hxly = binascii.hexlify
     sha1 = hashlib.sha1
@@ -257,60 +257,12 @@ def hash_dir(dir_path):
             except OSError as e:
                 print(e)
 
-
 def hash_check(file_hash, filepath):
+    import hashlib
+
     with open(filepath, "rb") as f:
         if hashlib.sha1(f.read()) == file_hash:
             return True
-
-
-class QueueFull(Exception):
-    pass
-
-
-class Queue:
-    __slots__ = ("max_len", "_queue")
-
-    def __init__(self, max_len: int = 300):
-        self.max_len = max_len
-        self._queue = self._new_queue()
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        try:
-            return self._queue.popleft()
-        except IndexError:
-            raise StopIteration
-
-    def __len__(self):
-        return len(self._queue)
-
-    def _new_queue(self):
-        return collections.deque((), self.max_len, 1)
-
-    def put(self, item):
-        try:
-            self._queue.append(item)
-        except IndexError:
-            raise QueueFull()
-
-    def get(self):
-        try:
-            return self._queue.popleft()
-        except IndexError:
-            return None
-
-    def peek(self):
-        try:
-            return self._queue[0]
-        except IndexError:
-            return None
-
-    def clear(self):
-        self._queue = self._new_queue()
-
 
 def safe_storage_operation(storage, operation, *args, **kwargs):
     if storage is None:
@@ -327,13 +279,11 @@ def safe_storage_operation(storage, operation, *args, **kwargs):
         print(f"CRITICAL: Storage method '{operation}' not found: {e}")
         return None
     except Exception as e:
-        # Comprehensive error logging
         print(f"CRITICAL: Storage operation '{operation}' failed")
         print(f"Arguments: {args}")
         print(f"Keyword Arguments: {kwargs}")
         print(f"Error details: {type(e).__name__}: {e}")
         return None
-
 
 def retrieve_offline_messages(storage, debug=False):
     try:
@@ -353,8 +303,7 @@ def retrieve_offline_messages(storage, debug=False):
             print(f"CRITICAL: Error retrieving offline messages: {e}")
         return []
 
-
-def send_offline_messages(websocket, messages, max_batch_size=10, debug=False):
+def send_offline_messages(mqtt_handler, messages, max_batch_size=10, debug=False):
     sent_count = 0
     for i in range(0, len(messages), max_batch_size):
         batch = messages[i : i + max_batch_size]
@@ -363,14 +312,14 @@ def send_offline_messages(websocket, messages, max_batch_size=10, debug=False):
                 print(
                     f"Attempting to send offline message batch of {len(batch)} messages"
                 )
-            response = websocket.send_batch(batch)
-            if response:
+            success = mqtt_handler.send_batch(batch)
+            if success:
                 sent_count += len(batch)
                 if debug:
                     print(f"Successfully sent {len(batch)} offline messages")
-            if isinstance(response, dict) and response.get("code") != 200:
+            else:
                 if debug:
-                    print(f"Batch send failed with response: {response}")
+                    print("Batch send failed")
                 break
         except Exception as e:
             if debug:

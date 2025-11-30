@@ -1,5 +1,4 @@
 class Future:
-    """Future class for async operations"""
     
     def __init__(self):
         self._result = None

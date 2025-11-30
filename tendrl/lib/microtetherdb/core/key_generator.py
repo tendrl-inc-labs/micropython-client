@@ -3,11 +3,9 @@ import random
 
 
 class KeyGenerator:
-    """Handles key generation and validation for the database"""
     
     @staticmethod
     def generate_key(ttl=0):
-        """Generate a unique key with embedded timestamp and TTL"""
         current_time = int(time.time())
         unique_id = random.getrandbits(16)
         ttl = int(ttl) if ttl is not None else 0
@@ -15,7 +13,6 @@ class KeyGenerator:
     
     @staticmethod
     def parse_key(key):
-        """Parse a key to extract timestamp, TTL, and unique ID"""
         try:
             timestamp_str, ttl_str, unique_id = key.split(":")
             return {
@@ -28,5 +25,4 @@ class KeyGenerator:
     
     @staticmethod
     def validate_key(key):
-        """Validate that a key has the correct format"""
         return KeyGenerator.parse_key(key) is not None 
