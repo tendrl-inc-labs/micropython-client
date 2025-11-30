@@ -669,7 +669,7 @@ client.db_delete("some_key")
 client.db_cleanup()
 ```
 
-**📖 For complete database documentation, advanced features, and examples, see the [MicroTetherDB README](tendrl/lib/microtetherdb/README.md)**
+**📖 For complete database documentation, advanced features, and examples, see the [MicroTetherDB README](tendrl/lib/microtetherdb/db.py)**
 
 ### Database Features
 
