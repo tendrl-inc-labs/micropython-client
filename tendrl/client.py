@@ -92,6 +92,7 @@ class Client:
         self._last_connect = 0
         self._last_cleanup = 0
         self._proc = False
+        self._ntp_synced = False
         self._e_type = f"mp:{self.config['tendrl_version']}:" + ".".join(
             [str(i) for i in sys.implementation.version[:-1]]
         )
@@ -223,6 +224,11 @@ class Client:
         try:
             if self.network.connect():
                 gc.collect()
+                # NTP sync happens in network.connect(), so mark as synced
+                if not self._ntp_synced:
+                    self._ntp_synced = True
+                    self._update_queued_timestamps()
+                
                 if self.mqtt.connect():
                     self.client_enabled = True
                     if self.debug:
@@ -266,7 +272,8 @@ class Client:
     async def _cleanup_offline_messages(self):
         if not self.storage:
             return
-        if (self._last_cleanup - time.time()) >= 60:
+        current_time = time.time()
+        if (current_time - self._last_cleanup) >= 60:
             try:
                 async with self.storage as store:
                     cleanup_result = store.cleanup()
@@ -358,7 +365,8 @@ class Client:
                     self.client_enabled, self.mqtt.connected = False, False
 
             if current_time - self._last_cleanup >= 60:
-                self._sync_cleanup_offline_messages()
+                if self.storage or self._client_db:
+                    self._sync_cleanup_offline_messages()
                 self._last_cleanup = current_time
                 did_work = True
 
@@ -378,8 +386,73 @@ class Client:
                 gc.collect()
             self._proc = False
 
+    def _update_queued_timestamps(self):
+        """Update timestamps for all queued messages after NTP sync"""
+        import time
+        from .utils.util_helpers import iso8601
+        
+        if not self.managed:
+            return
+        
+        updated_count = 0
+        current_timestamp = iso8601(time.gmtime())
+        
+        # Update timestamps in main queue
+        if self.queue and len(self.queue) > 0:
+            # Extract all messages, update timestamps, and re-queue
+            queue_size = len(self.queue)
+            temp_messages = []
+            
+            # Extract all messages from queue using get()
+            for _ in range(queue_size):
+                msg = self.queue.queue.get()
+                if msg is None:
+                    break
+                if isinstance(msg, dict) and "timestamp" in msg:
+                    # Update timestamp
+                    msg["timestamp"] = current_timestamp
+                    updated_count += 1
+                temp_messages.append(msg)
+            
+            # Re-queue messages with updated timestamps
+            for msg in temp_messages:
+                try:
+                    self.queue.put(msg)
+                except Exception:
+                    if self.debug:
+                        print("Warning: Could not re-queue message after timestamp update")
+        
+        # Update timestamps in offline queue
+        if self._offline_queue and len(self._offline_queue) > 0:
+            queue_size = len(self._offline_queue)
+            temp_messages = []
+            
+            # Extract all messages from offline queue using get()
+            for _ in range(queue_size):
+                msg = self._offline_queue.queue.get()
+                if msg is None:
+                    break
+                if isinstance(msg, dict) and "timestamp" in msg:
+                    # Update timestamp
+                    msg["timestamp"] = current_timestamp
+                    updated_count += 1
+                temp_messages.append(msg)
+            
+            # Re-queue messages with updated timestamps
+            for msg in temp_messages:
+                try:
+                    self._offline_queue.put(msg)
+                except Exception:
+                    if self.debug:
+                        print("Warning: Could not re-queue offline message after timestamp update")
+        
+        if self.debug and updated_count > 0:
+            print(f"✅ Updated timestamps for {updated_count} queued messages after NTP sync")
+
     def _sync_cleanup_offline_messages(self):
-        result = safe_storage_operation(self.storage, "cleanup")
+        result = None
+        if self.storage:
+            result = safe_storage_operation(self.storage, "cleanup")
         if self._client_db:
             safe_storage_operation(self._client_db, "cleanup")
         return result
@@ -470,8 +543,9 @@ class Client:
                 await self._check_messages()
                 did_work = True
 
-                await self._cleanup_offline_messages()
-                did_work = True
+                if self.storage or self._client_db:
+                    await self._cleanup_offline_messages()
+                    did_work = True
 
                 if self._process_offline_queue() > 0:
                     did_work = True
@@ -591,6 +665,7 @@ class Client:
                 message = make_message(
                     data, "publish", tags=tags, entity=entity
                 )
+                
                 if not self.queue.put(message):
                     if self.debug:
                         print("Failed to queue message - queue full")
@@ -805,9 +880,9 @@ class Client:
             except Exception as batch_err:
                 if self.debug:
                     print(f"Batch Message Storage Error: {batch_err}")
-                for msg, ttl in zip(batch_messages, batch_ttls):
-                    msg["_offline_ttl"] = ttl
-                    self._offline_queue.put(msg)
+                    for msg, ttl in zip(batch_messages, batch_ttls):
+                        msg["_offline_ttl"] = ttl
+                        self._offline_queue.put(msg)
         return processed
 
     def _send_offline_messages(self):
@@ -824,6 +899,11 @@ class Client:
         jti = self.network.connect()
         if jti:
             try:
+                # NTP sync happens in network.connect(), so mark as synced
+                if not self._ntp_synced:
+                    self._ntp_synced = True
+                    self._update_queued_timestamps()
+                
                 if self.mqtt.connect():
                     self.client_enabled = True
                     gc.collect()
