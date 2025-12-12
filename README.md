@@ -498,11 +498,9 @@ client.start()
 |-------|------|-------------|----------|
 | `msg_type` | `str` | Message type identifier (e.g., "command", "notification", "alert") | ✅ Yes |
 | `source` | `str` | Sender's resource path (set by server) | ✅ Yes |
-| `dest` | `str` | Destination entity identifier | ❌ Optional |
 | `timestamp` | `str` | RFC3339 timestamp (set by server) | ✅ Yes |
 | `data` | `dict/list/any` | The actual message payload (can be any JSON type) | ✅ Yes |
-| `context` | `dict` | Message metadata | ❌ Optional |
-| `request_id` | `str` | Request identifier (if message was a request) | ❌ Optional |
+| `tags` | `list` | Message tags | ❌ Optional |
 
 ### Message Context Structure
 

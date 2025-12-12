@@ -4,18 +4,23 @@ import _thread
 import requests
 import gc
 
-
-from umqtt.simple import MQTTClient, MQTTException
+from umqtt.simple import MQTTException
+from umqtt.robust import MQTTClient
 from .config_manager import update_entity_cache , get_entity_cache
 
 
 class MQTTHandler:
+    """
+    MQTT Handler using umqtt.robust for automatic reconnection.
+    The robust client automatically handles reconnection on network errors,
+    so operations will attempt to reconnect if the connection is lost.
+    """
     def __init__(self, config, debug=False, callback=None):
         self._mqtt = None
         self._mqtt_lock = _thread.allocate_lock()
         self.config = config
         self.debug = debug
-        self.connected = False
+        self.connected = False  # Tracks connection state, but robust handles reconnection
         self._consecutive_errors = 0
         self._max_batch_size = 4096
         self._max_messages_per_batch = 50
@@ -334,9 +339,11 @@ class MQTTHandler:
         return self.connect()
 
     def publish_message(self, data):
-        if not self.connected or self._mqtt is None:
+        # With umqtt.robust, allow automatic reconnection attempts
+        # Only check if MQTT client exists, not connection state
+        if self._mqtt is None:
             if self.debug:
-                print("❌ Not connected to MQTT broker")
+                print("❌ MQTT client not initialized")
             return False, True
 
         try:
@@ -344,11 +351,16 @@ class MQTTHandler:
             # Always use the publish topic
             topic = self._build_publish_topic()
 
+            # umqtt.robust will automatically reconnect if connection is lost
             self._mqtt.publish(topic, p)
+            # If publish succeeds, we're connected (robust handles reconnection)
+            self.connected = True
             return True, False
         except Exception as e:
             if self.debug:
                 print(f"❌ Error in publish_message: {e}")
+            # Mark as disconnected - robust will attempt reconnection on next operation
+            self.connected = False
             return False, True
 
     def _chunk_messages(self, messages):
@@ -376,9 +388,10 @@ class MQTTHandler:
         return chunks
 
     def send_batch(self, messages):
-        if not self.connected or not self._mqtt:
+        # With umqtt.robust, allow automatic reconnection attempts
+        if self._mqtt is None:
             if self.debug:
-                print("❌ MQTT not connected - cannot send batch")
+                print("❌ MQTT client not initialized - cannot send batch")
             return False
 
         if not messages:
@@ -425,17 +438,32 @@ class MQTTHandler:
         return connection_error_count == 0
 
     def check_messages(self):
-        if not self.connected or not self._mqtt:
+        """
+        Check for incoming MQTT messages. This is a non-blocking call that
+        processes any pending messages by triggering the callback function.
+        With umqtt.robust, automatic reconnection is handled internally.
+        
+        Returns:
+            True if the check was successful (messages are processed via callback)
+            False if there was an error or MQTT client not initialized
+        """
+        if self._mqtt is None:
             if self.debug:
-                print("❌ MQTT not connected - cannot check messages")
+                print("❌ MQTT client not initialized - cannot check messages")
             return False
 
         try:
-            m = self._mqtt.check_msg()
-            return m
+            # check_msg() returns None but processes messages via callback
+            # umqtt.robust will automatically reconnect if connection is lost
+            self._mqtt.check_msg()
+            # If check_msg succeeds, we're connected
+            self.connected = True
+            return True
         except Exception as e:
             if self.debug:
                 print(f"❌ Error checking messages: {e}")
+            # Mark as disconnected - robust will attempt reconnection on next operation
+            self.connected = False
             return False
 
     def cleanup(self):

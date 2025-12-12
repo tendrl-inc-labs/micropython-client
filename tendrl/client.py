@@ -355,10 +355,13 @@ class Client:
             if current_time - self._last_msg_check >= self.check_msg_rate:
                 try:
                     self._last_msg_check = current_time
-                    msg = self.mqtt.check_messages()
-                    if msg:
-                        self._process_message(msg)
-                    did_work = True
+                    # check_messages() processes messages via callback, returns True on success
+                    success = self.mqtt.check_messages()
+                    if success:
+                        did_work = True
+                    else:
+                        # If check failed, mark as disconnected
+                        self.client_enabled, self.mqtt.connected = False, False
                 except Exception as check_msg_err:
                     if self.debug:
                         print(f"Check messages error: {check_msg_err}")
@@ -496,12 +499,15 @@ class Client:
         if (current_time - self._last_msg_check) >= self.check_msg_rate:
             try:
                 self._last_msg_check = current_time
-                msg = self.mqtt.check_messages()
-                if msg:
-                    self._process_message(msg)
+                # check_messages() processes messages via callback, returns True on success
+                success = self.mqtt.check_messages()
+                if not success:
+                    # If check failed, mark as disconnected
+                    self.client_enabled, self.mqtt.connected = False, False
             except Exception as e:
                 if self.debug:
                     print(f"Message check error: {e}")
+                self.client_enabled, self.mqtt.connected = False, False
 
     async def _async_callback(self):
         while not self._stop_event.is_set():
