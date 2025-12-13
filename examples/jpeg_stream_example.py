@@ -25,11 +25,8 @@ client = Client(debug=True, managed=True)
 client.start()
 
 # Example 1: Basic streaming with default settings
-@client.jpeg_stream(
-    server_host="your.server.com",
-    use_tls=True,
-    port=443
-)
+# Uses app URL from client config, always uses TLS (port 443)
+@client.jpeg_stream()
 def capture_frame():
     """Capture a frame and return JPEG bytes"""
     img = sensor.snapshot()
@@ -37,14 +34,10 @@ def capture_frame():
 
 # Example 2: High-performance streaming with custom tuning
 @client.jpeg_stream(
-    server_host="your.server.com",
-    use_tls=True,
-    port=443,
     chunk_size=4096,           # Larger chunks for better throughput
     yield_every_bytes=32*1024,  # Minimize yields for better throughput
     yield_ms=1,                 # Minimal yield delay
     target_fps=25,              # Target 25 FPS
-    boundary="openmvframe",     # Multipart boundary
     gc_interval=1024,            # Run GC every 1024 frames
     reconnect_delay=5000,        # 5 second delay before reconnecting
     debug=True
@@ -56,8 +49,6 @@ def capture_frame_optimized():
 
 # Example 3: Lower quality, higher FPS streaming
 @client.jpeg_stream(
-    server_host="your.server.com",
-    use_tls=True,
     chunk_size=8192,            # Even larger chunks
     yield_every_bytes=64*1024,  # Less frequent yields
     target_fps=30,              # Higher FPS target

@@ -642,32 +642,22 @@ class Client:
             return async_wrapped_function if is_async else sync_wrapped_function
         return wrapper
 
-    def jpeg_stream(self, server_host, port=None, use_tls=True,
-                   chunk_size=4096, yield_every_bytes=32*1024, yield_ms=1,
-                   target_fps=25, boundary="openmvframe", gc_interval=1024,
+    def jpeg_stream(self, chunk_size=4096, yield_every_bytes=32*1024, yield_ms=1,
+                   target_fps=25, gc_interval=1024,
                    reconnect_delay=5000, yield_interval=10, debug=False):
-        """
-        Decorator for JPEG streaming with performance tuning parameters.
-        
-        Requires the optional streaming module. Install with:
-        mip.install("github:tendrl-inc-labs/micropython-client", target="/lib", 
-                    mpy=False, version="latest", extra_args=["--streaming"])
-        
-        Or manually install tendrl/streaming.py
-        """
         try:
-            from .streaming import jpeg_stream_decorator
+            from .streaming import jpeg_stream
         except ImportError:
             raise ImportError(
                 "JPEG streaming requires the optional streaming module. "
                 "Install with: mip.install(..., extra_args=['--streaming']) "
                 "or manually install tendrl/streaming.py"
             )
-        
-        return jpeg_stream_decorator(
-            self, server_host, port, use_tls,
+
+        return jpeg_stream(
+            self,
             chunk_size, yield_every_bytes, yield_ms,
-            target_fps, boundary, gc_interval,
+            target_fps, gc_interval,
             reconnect_delay, yield_interval, debug
         )
 
