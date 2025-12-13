@@ -239,8 +239,8 @@ The SDK provides several initialization options:
 | `watchdog` | `int` | `0` | Watchdog timer period (0 to disable) |
 | `send_heartbeat` | `bool` | `True` | Enable heartbeat messages |
 | `client_db` | `bool` | `True` | Enable client database |
-| `client_db_in_memory` | `bool` | `True` | Use in-memory storage for client database |
-| `offline_storage` | `bool` | `True` | Enable offline message storage |
+| `client_db_in_memory` | `bool` | `True` | Use in-memory storage for client database (recommended to avoid corruption risk) |
+| `offline_storage` | `bool` | `True` | Enable offline message storage (file-based, [see warning below](#file-based-storage-warning)) |
 | `managed` | `bool` | `True` | Enable managed mode (WiFi, queuing, offline storage) |
 | `event_loop` | `asyncio.AbstractEventLoop` | `None` | Event loop for async mode (integrates with user applications) |
 
@@ -677,6 +677,25 @@ client.db_cleanup()
 - **Event Loop Integration**: Seamless async application integration
 - **Memory Efficient**: Configurable RAM usage
 - **Production Ready**: Comprehensive error handling and test coverage
+
+<a id="file-based-storage-warning"></a>
+### ⚠️ File-Based Storage Warning
+
+**Important**: When using file-based storage (`in_memory=False`), there is a risk of database corruption if:
+
+- **Power loss occurs during write operations** - The database uses BTree which writes directly to flash storage
+- **Improper shutdown** - Device is reset or powered off without proper cleanup
+- **File system errors** - Underlying filesystem issues can cause corruption
+
+**Recommendations**:
+
+1. **Use in-memory storage when possible** (`client_db_in_memory=True`) - This eliminates corruption risk but data is lost on power loss
+2. **Proper shutdown** - Always call `client.stop()` or `await client.async_stop()` before powering off
+3. **UPS/Battery backup** - For critical systems, use uninterruptible power supplies
+4. **Regular backups** - For important data, implement periodic backup strategies
+5. **Error handling** - The database will attempt to recover from minor corruption, but severe corruption may require database recreation
+
+**Note**: The database includes automatic flushing and error recovery mechanisms, making corruption rare in normal operation. However, power loss during active writes can still cause issues. For mission-critical applications, consider using in-memory storage with periodic cloud synchronization.
 
 
 ## Hardware Integration
