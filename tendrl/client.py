@@ -104,7 +104,7 @@ class Client:
             if self._user_event_loop:
                 asyncio.set_event_loop(self._user_event_loop)
                 if debug:
-                    print("✅ Using user-provided event loop for client")
+                    print("Using user-provided event loop for client")
             self._stop_event = asyncio.Event()
             self._tasks = []
         if BTREE_AVAILABLE and managed:
@@ -114,15 +114,15 @@ class Client:
                     if self._user_event_loop:
                         database_event_loop = self._user_event_loop
                         if debug:
-                            print("✅ Using user-provided event loop for databases")
+                            print("Using user-provided event loop for databases")
                     else:
                         try:
                             database_event_loop = asyncio.get_running_loop()
                             if debug:
-                                print("✅ Using current running event loop for databases")
+                                print("Using current running event loop for databases")
                         except RuntimeError:
                             if debug:
-                                print("⚠️ No running event loop found, databases will create one")
+                                print("No running event loop found, databases will create one")
                 if offline_storage:
                     try:
                         from tendrl.lib.microtetherdb.db import MicroTetherDB
@@ -133,15 +133,15 @@ class Client:
                             event_loop=database_event_loop
                         )
                         if debug:
-                            print("✅ Offline storage database initialized")
+                            print("Offline storage database initialized")
                     except ImportError:
                         self._db = None
                         if debug:
-                            print("⚠️ MicroTetherDB not available - offline storage disabled")
+                            print("MicroTetherDB not available - offline storage disabled")
                 else:
                     self._db = None
                     if debug:
-                        print("⚠️ Offline storage disabled - no message queuing")
+                        print("Offline storage disabled - no message queuing")
                 if client_db:
                     try:
                         from tendrl.lib.microtetherdb.db import MicroTetherDB
@@ -154,27 +154,27 @@ class Client:
                         )
                         storage_type = "in-memory" if client_db_in_memory else "file-based"
                         if debug:
-                            print(f"✅ Client database initialized ({storage_type})")
+                            print(f"Client database initialized ({storage_type})")
                     except ImportError:
                         self._client_db = None
                         if debug:
-                            print("⚠️ MicroTetherDB not available - client database disabled")
+                            print("MicroTetherDB not available - client database disabled")
                 else:
                     self._client_db = None
                     if debug:
-                        print("⚠️ Client database disabled - no local data storage")
+                        print("Client database disabled - no local data storage")
             except Exception as e:
-                print(f"❌ Storage initialization error: {e}")
+                print(f"Storage initialization error: {e}")
                 self._db = None
                 self._client_db = None
         elif not managed:
             if debug:
-                print("⚠️ Unmanaged mode - databases disabled")
+                print("Unmanaged mode - databases disabled")
             self._db = None
             self._client_db = None
         else:
             if debug:
-                print("⚠️ MicroTetherDB not available - databases disabled")
+                print("MicroTetherDB not available - databases disabled")
                 print("   Use minimal installation or install full package")
             self._db = None
             self._client_db = None
@@ -228,7 +228,7 @@ class Client:
                 if not self._ntp_synced:
                     self._ntp_synced = True
                     self._update_queued_timestamps()
-                
+
                 if self.mqtt.connect():
                     self.client_enabled = True
                     if self.debug:
@@ -307,11 +307,11 @@ class Client:
                     success, is_connection_error = self.mqtt.publish_message(msg)
                     if not success and is_connection_error:
                         if self.debug:
-                            print("❌ Heartbeat connection error - disabling client")
+                            print("Heartbeat connection error - disabling client")
                         self.client_enabled, self.mqtt.connected = False, False
                     elif not success:
                         if self.debug:
-                            print("❌ Heartbeat validation error - client remains enabled")
+                            print("Heartbeat validation error - client remains enabled")
                     did_work = True
                 except Exception:
                     self.client_enabled, self.mqtt.connected = False, False
@@ -450,7 +450,7 @@ class Client:
                         print("Warning: Could not re-queue offline message after timestamp update")
         
         if self.debug and updated_count > 0:
-            print(f"✅ Updated timestamps for {updated_count} queued messages after NTP sync")
+            print(f"Updated timestamps for {updated_count} queued messages after NTP sync")
 
     def _sync_cleanup_offline_messages(self):
         result = None
@@ -484,11 +484,11 @@ class Client:
 
                 if not success and is_connection_error:
                     if self.debug:
-                        print("❌ Heartbeat connection error - disabling client")
+                        print("Heartbeat connection error - disabling client")
                     self.client_enabled, self.mqtt.connected = False, False
                 elif not success:
                     if self.debug:
-                        print("❌ Heartbeat validation error - client remains enabled")
+                        print("Heartbeat validation error - client remains enabled")
             except Exception as e:
                 if self.debug:
                     print(f"Heartbeat error: {e}")
@@ -642,6 +642,35 @@ class Client:
             return async_wrapped_function if is_async else sync_wrapped_function
         return wrapper
 
+    def jpeg_stream(self, server_host, port=None, use_tls=True,
+                   chunk_size=4096, yield_every_bytes=32*1024, yield_ms=1,
+                   target_fps=25, boundary="openmvframe", gc_interval=1024,
+                   reconnect_delay=5000, yield_interval=10, debug=False):
+        """
+        Decorator for JPEG streaming with performance tuning parameters.
+        
+        Requires the optional streaming module. Install with:
+        mip.install("github:tendrl-inc-labs/micropython-client", target="/lib", 
+                    mpy=False, version="latest", extra_args=["--streaming"])
+        
+        Or manually install tendrl/streaming.py
+        """
+        try:
+            from .streaming import jpeg_stream_decorator
+        except ImportError:
+            raise ImportError(
+                "JPEG streaming requires the optional streaming module. "
+                "Install with: mip.install(..., extra_args=['--streaming']) "
+                "or manually install tendrl/streaming.py"
+            )
+        
+        return jpeg_stream_decorator(
+            self, server_host, port, use_tls,
+            chunk_size, yield_every_bytes, yield_ms,
+            target_fps, boundary, gc_interval,
+            reconnect_delay, yield_interval, debug
+        )
+
     def publish(
         self,
         data,
@@ -682,9 +711,9 @@ class Client:
                 if not success:
                     if self.debug:
                         if is_connection_error:
-                            print("❌ Connection error - disabling client")
+                            print("Connection error - disabling client")
                         else:
-                            print("❌ Message validation error - client remains enabled")
+                            print("Message validation error - client remains enabled")
                     if is_connection_error:
                         self.client_enabled = False
                 return success
@@ -718,11 +747,11 @@ class Client:
                 if self._user_event_loop:
                     main_task = self._user_event_loop.create_task(self._async_callback())
                     if self.debug:
-                        print("✅ Created client task on user-provided event loop")
+                        print("Created client task on user-provided event loop")
                 else:
                     main_task = asyncio.create_task(self._async_callback())
                     if self.debug:
-                        print("✅ Created client task on current event loop")
+                        print("Created client task on current event loop")
                 self._tasks.append(main_task)
                 if watchdog and MACHINE_AVAILABLE:
                     try:

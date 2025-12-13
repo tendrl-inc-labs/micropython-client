@@ -1,0 +1,22 @@
+{
+    "name": "tendrl-streaming",
+    "version": "0.1.0",
+    "description": "Tendrl MicroPython SDK - JPEG Streaming Extension",
+    "author": "Tendrl Inc",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/tendrl-inc-labs/micropython-client"
+    },
+    "files": [
+        "tendrl/streaming.py"
+    ],
+    "dependencies": [],
+    "micropython": {
+        "version": ">=1.19.0"
+    },
+    "urls": [
+        ["tendrl/streaming.py", "github:tendrl-inc-labs/micropython-client/tendrl/streaming.py"]
+    ]
+}
+

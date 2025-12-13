@@ -14,13 +14,18 @@ WIFI_RETRY_DELAY = 5
 INSTALL_RETRY_DELAY = 10
 
 INSTALL_DB = True
+INSTALL_STREAMING = False  # Set to True to include JPEG streaming support
 
 if INSTALL_DB:
     print("🗃️ Installing full Tendrl SDK with MicroTetherDB")
 else:
     print("🗃️ Installing minimal Tendrl SDK (no database)")
 
+if INSTALL_STREAMING:
+    print("📹 Including JPEG streaming support")
+
 INCLUDE_DB = INSTALL_DB
+INCLUDE_STREAMING = INSTALL_STREAMING
 
 def create_user_config_template():
     if not file_exists(CONFIG_FILE):
@@ -141,6 +146,12 @@ def verify_installation():
             ]
             required_files.extend(db_files)
 
+        if INCLUDE_STREAMING:
+            streaming_files = [
+                "/lib/tendrl/streaming.py"
+            ]
+            required_files.extend(streaming_files)
+
         for file in required_files:
             if not file_exists(file):
                 print(f"❌ Required file not found: {file}")
@@ -207,6 +218,11 @@ def install_tendrl():
             else:
                 mip.install("github:tendrl-inc-labs/micropython-client/package-minimal.json", target="/lib")
 
+            # Install streaming module if requested
+            if INCLUDE_STREAMING:
+                print("📹 Installing JPEG streaming module...")
+                mip.install("github:tendrl-inc-labs/micropython-client/package-streaming.json", target="/lib")
+
             if not create_library_config():
                 raise RuntimeError("Failed to create library config")
 
@@ -272,6 +288,11 @@ def main():
         else:
             print("⚠️ MicroTetherDB not installed - use client_db=False in Client() constructor")
             print("💡 This saves ~50KB flash space but disables local database features")
+        if INCLUDE_STREAMING:
+            print("📹 JPEG streaming module installed")
+            print("💡 Use client.jpeg_stream() decorator for camera streaming")
+        else:
+            print("💡 To enable JPEG streaming, set INSTALL_STREAMING=True in install_script.py")
         print("⚠️ If you haven't already, please edit /config.json with your API key")
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
