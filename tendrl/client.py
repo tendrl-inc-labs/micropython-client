@@ -41,7 +41,7 @@ class Client:
     def __init__(self,mode="sync",debug=False,timer=0,freq=3,callback=None,
         check_msg_rate=5,max_batch_size=15,db_page_size=1024,watchdog=0,
         send_heartbeat=True, client_db=True, client_db_in_memory=True,
-        offline_storage=True, managed=True, event_loop=None):
+        offline_storage=True, managed=True, event_loop=None, enable_mqtt=True):
         if mode not in ["sync", "async"]:
             raise ValueError("Mode must be either 'sync' or 'async'")
         if mode == "async" and not ASYNCIO_AVAILABLE:
@@ -68,7 +68,17 @@ class Client:
             if not managed
             else NetworkManager(self.config, debug)
         )
-        self.mqtt = MQTTHandler(self.config, debug, callback)
+        # MQTT is optional - can be disabled for streaming-only use cases
+        if enable_mqtt:
+            try:
+                self.mqtt = MQTTHandler(self.config, debug, callback)
+            except (ImportError, Exception) as e:
+                if debug:
+                    print(f"Warning: MQTT handler initialization failed: {e}")
+                    print("  Continuing without MQTT (streaming will still work)")
+                self.mqtt = None
+        else:
+            self.mqtt = None
         self.queue = QueueManager(
             max_batch=max_batch_size,
             debug=debug,
@@ -229,12 +239,24 @@ class Client:
                     self._ntp_synced = True
                     self._update_queued_timestamps()
 
-                if self.mqtt.connect():
+                # Only connect MQTT if it's enabled
+                if self.mqtt:
+                    if self.mqtt.connect():
+                        self.client_enabled = True
+                        if self.debug:
+                            print("Connected to Tendrl Server")
+                        return True
+                    self.client_enabled, self.mqtt.connected = False, False
+                else:
+                    # MQTT disabled - network connection is sufficient for streaming
                     self.client_enabled = True
                     if self.debug:
-                        print("Connected to Tendrl Server")
+                        print("Network connected (MQTT disabled)")
                     return True
-            self.client_enabled, self.mqtt.connected = False, False
+            if self.mqtt:
+                self.client_enabled, self.mqtt.connected = False, False
+            else:
+                self.client_enabled = False
             return False
         except Exception as e:
             self.client_enabled = False
@@ -642,11 +664,39 @@ class Client:
             return async_wrapped_function if is_async else sync_wrapped_function
         return wrapper
 
-    def jpeg_stream(self, chunk_size=4096, yield_every_bytes=32*1024, yield_ms=1,
-                   target_fps=25, gc_interval=1024,
-                   reconnect_delay=5000, yield_interval=10, debug=False):
+    def start_streaming(self, capture_frame_func, chunk_size=4096, 
+                       yield_every_bytes=32*1024, yield_ms=1, target_fps=25, 
+                       gc_interval=1024, reconnect_delay=5000, yield_interval=10, 
+                       debug=False):
+        """
+        Start streaming JPEG frames to the server.
+        Automatically adds the streaming task to the background task queue.
+        
+        Args:
+            capture_frame_func: Function that returns JPEG frame bytes (can be sync or async)
+            chunk_size: Size of chunks to send (default: 4096)
+            yield_every_bytes: Yield to event loop after sending this many bytes (default: 32KB)
+            yield_ms: Milliseconds to sleep when yielding (default: 1)
+            target_fps: Target frames per second (default: 25)
+            gc_interval: Run garbage collection every N frames (default: 1024, 0 to disable)
+            reconnect_delay: Milliseconds to wait before reconnecting (default: 5000)
+            yield_interval: Yield to event loop every N frames (default: 10, 0 to disable)
+            debug: Enable debug logging (default: False)
+        
+        Returns:
+            The background task (if async mode) or None (if sync mode)
+        
+        Example:
+            def capture_frame():
+                import sensor
+                img = sensor.snapshot()
+                return img.bytearray()
+            
+            # Start streaming - automatically handles background task
+            client.start_streaming(capture_frame, target_fps=25)
+        """
         try:
-            from .streaming import jpeg_stream
+            from .streaming import start_jpeg_stream
         except ImportError:
             raise ImportError(
                 "JPEG streaming requires the optional streaming module. "
@@ -654,12 +704,23 @@ class Client:
                 "or manually install tendrl/streaming.py"
             )
 
-        return jpeg_stream(
+        stream_coro = start_jpeg_stream(
             self,
+            capture_frame_func,
             chunk_size, yield_every_bytes, yield_ms,
             target_fps, gc_interval,
             reconnect_delay, yield_interval, debug
         )
+
+        # Automatically add to background tasks if in async mode
+        if self.mode == "async":
+            return self.add_background_task(stream_coro)
+        else:
+            # In sync mode, we can't run async coroutines directly
+            # User would need to handle this differently or use async mode
+            if self.debug:
+                print("Warning: Streaming requires async mode. Use Client(mode='async')")
+            return None
 
     def publish(
         self,
@@ -697,6 +758,10 @@ class Client:
                     if self.storage and write_offline:
                         self._store_offline_message(message, db_ttl)
             else:
+                if not self.mqtt:
+                    if self.debug:
+                        print("MQTT is disabled - cannot publish messages")
+                    return None
                 success, is_connection_error = self.mqtt.publish_message(data)
                 if not success:
                     if self.debug:
@@ -798,11 +863,12 @@ class Client:
                     if hasattr(task, "done") and not task.done():
                         task.cancel()
                 self._tasks = []
-        try:
-            self.mqtt.cleanup()
-        except Exception as e:
-            if self.debug:
-                print(f"Error closing MQTT connection: {e}")
+        if self.mqtt:
+            try:
+                self.mqtt.cleanup()
+            except Exception as e:
+                if self.debug:
+                    print(f"Error closing MQTT connection: {e}")
         try:
             self.network.cleanup()
         except Exception as e:

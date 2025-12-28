@@ -4,8 +4,17 @@ import _thread
 import requests
 import gc
 
-from umqtt.simple import MQTTException
-from umqtt.robust import MQTTClient
+try:
+    from umqtt.simple import MQTTException
+    from umqtt.robust import MQTTClient
+    QOS = 1
+except ImportError:
+    try:
+        from mqtt import MQTTClient, MQTTException
+        QOS = 0
+    except ImportError:
+        print("Warning: mqtt not available")
+
 from .config_manager import update_entity_cache , get_entity_cache
 
 
@@ -33,7 +42,7 @@ class MQTTHandler:
             api_key = self.config.get("api_key")
             if not api_key:
                 if self.debug:
-                    print("❌ Missing API key in configuration")
+                    print("Missing API key in configuration")
                 return False
 
             # Try to get cached entity info from separate cache file
@@ -41,7 +50,7 @@ class MQTTHandler:
 
             if cached_api_key_id and cached_subject:
                 if self.debug:
-                    print("📋 Using cached entity info")
+                    print("Using cached entity info")
                 self.entity_info = {
                     'jti': cached_api_key_id,
                     'sub': cached_subject
@@ -49,7 +58,7 @@ class MQTTHandler:
                 return True
 
             if self.debug:
-                print("🌐 Fetching entity info from API...")
+                print("Fetching entity info from API...")
 
             api_base_url = self.config.get("app_url", "https://app.tendrl.com")
 
@@ -88,7 +97,7 @@ class MQTTHandler:
                         subject=entity_info.get('sub')
                     )
                     if self.debug:
-                        print("💾 Caching entity info")
+                        print("Caching entity info")
                 except Exception as cache_err:
                     if self.debug:
                         print(f"Error updating entity cache: {cache_err}")
@@ -97,11 +106,11 @@ class MQTTHandler:
                 return True
             else:
                 if self.debug:
-                    print(f"❌ Failed to fetch entity info: {response.status_code}")
+                    print(f"Failed to fetch entity info: {response.status_code}")
                 return False
         except Exception as e:
             if self.debug:
-                print(f"❌ Entity info fetch error: {e}")
+                print(f"Entity info fetch error: {e}")
             return False
 
 
@@ -165,17 +174,17 @@ class MQTTHandler:
 
         if not self._fetch_entity_info():
             if self.debug:
-                print("❌ Failed to fetch entity information")
+                print("Failed to fetch entity information")
             return False
 
         if not self.entity_info.get('jti'):
             if self.debug:
-                print("❌ API key ID not found in API claims. Check your API key.")
+                print("API key ID not found in API claims. Check your API key.")
             return False
 
         if not self.entity_info.get('sub'):
             if self.debug:
-                print("❌ Subject not found in API claims.")
+                print("Subject not found in API claims.")
             return False
 
         mqtt_host = self.config.get("mqtt_host")
@@ -183,18 +192,18 @@ class MQTTHandler:
         mqtt_ssl = self.config.get("mqtt_ssl")
 
         if self.debug:
-            print(f"🔧 MQTT config: {mqtt_host}:{mqtt_port} (SSL: {mqtt_ssl})")
+            print(f"MQTT config: {mqtt_host}:{mqtt_port} (SSL: {mqtt_ssl})")
 
         # Validate MQTT host configuration
         if not mqtt_host or mqtt_host.strip() == "":
             if self.debug:
-                print("❌ MQTT host is empty or not configured")
+                print("MQTT host is empty or not configured")
             return False
 
         api_key = self.config.get("api_key")
         if not api_key:
             if self.debug:
-                print("❌ Missing API key in configuration")
+                print("Missing API key in configuration")
             return False
 
         client_id = self.entity_info['sub']
@@ -244,22 +253,22 @@ class MQTTHandler:
                         self._subscribe_to_topics()
                     except Exception as sub_err:
                         if self.debug:
-                            print(f"⚠️ Subscription warning (non-critical): {sub_err}")
+                            print(f"Subscription warning (non-critical): {sub_err}")
 
                     if self.debug:
-                        print(f"✅ MQTT connected successfully to {mqtt_host}")
+                        print(f"MQTT connected successfully to {mqtt_host}")
                     return True
 
                 except MQTTException as mqtt_err:
                     if self.debug:
-                        print(f"❌ MQTT connection error (Attempt {attempt + 1}): {mqtt_err}")
+                        print(f"MQTT connection error (Attempt {attempt + 1}): {mqtt_err}")
                         print(f"   Host: {mqtt_host}, Port: {mqtt_port}, SSL: {mqtt_ssl}")
                     self.connected = False
                     time.sleep(2**attempt)
                     continue
                 except Exception as e:
                     if self.debug:
-                        print(f"❌ Unexpected MQTT connection error (Attempt {attempt + 1}): {e}")
+                        print(f"Unexpected MQTT connection error (Attempt {attempt + 1}): {e}")
                         print(f"   Error type: {type(e).__name__}")
                         print(f"   Host: {mqtt_host}, Port: {mqtt_port}, SSL: {mqtt_ssl}")
                     self.connected = False
@@ -269,12 +278,12 @@ class MQTTHandler:
             self._mqtt = None
             self.connected = False
             if self.debug:
-                print("❌ All MQTT connection attempts failed")
+                print("All MQTT connection attempts failed")
             return False
 
         except Exception as overall_err:
             if self.debug:
-                print(f"❌ Critical MQTT connection failure: {overall_err}")
+                print(f"Critical MQTT connection failure: {overall_err}")
             self._mqtt = None
             self.connected = False
             return False
@@ -282,20 +291,20 @@ class MQTTHandler:
     def _subscribe_to_topics(self):
         if not self._mqtt or not self.connected:
             if self.debug:
-                print("❌ Cannot subscribe - MQTT not connected")
+                print("Cannot subscribe - MQTT not connected")
             return
 
         try:
             # Subscribe to messages topic to receive commands/notifications
             messages_topic = self._build_messages_topic()
-            self._mqtt.subscribe(messages_topic, qos=1)
+            self._mqtt.subscribe(messages_topic, qos=QOS)
 
             if self.debug:
-                print(f"📡 Subscribed to messages topic: {messages_topic}")
+                print(f"Subscribed to messages topic: {messages_topic}")
 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error subscribing to topics: {e}")
+                print(f"Error subscribing to topics: {e}")
 
     def _on_message(self, topic, msg):
         try:
@@ -303,13 +312,13 @@ class MQTTHandler:
             msg_str = msg.decode('utf-8')
 
             if self.debug:
-                print(f"📨 Received message on topic {topic_str}: {msg_str}")
+                print(f"Received message on topic {topic_str}: {msg_str}")
 
             try:
                 message_data = json.loads(msg_str)
             except json.JSONDecodeError:
                 if self.debug:
-                    print(f"❌ Invalid JSON in message: {msg_str}")
+                    print(f"Invalid JSON in message: {msg_str}")
                 return
 
             if self.callback and callable(self.callback):
@@ -317,11 +326,11 @@ class MQTTHandler:
                     self.callback(message_data)
                 except Exception as e:
                     if self.debug:
-                        print(f"❌ Callback error: {e}")
+                        print(f"Callback error: {e}")
 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error handling MQTT message: {e}")
+                print(f"Error handling MQTT message: {e}")
 
     def _try_reconnect(self):
         self.connected = False
@@ -343,7 +352,7 @@ class MQTTHandler:
         # Only check if MQTT client exists, not connection state
         if self._mqtt is None:
             if self.debug:
-                print("❌ MQTT client not initialized")
+                print("MQTT client not initialized")
             return False, True
 
         try:
@@ -358,7 +367,7 @@ class MQTTHandler:
             return True, False
         except Exception as e:
             if self.debug:
-                print(f"❌ Error in publish_message: {e}")
+                print(f"Error in publish_message: {e}")
             # Mark as disconnected - robust will attempt reconnection on next operation
             self.connected = False
             return False, True
@@ -391,7 +400,7 @@ class MQTTHandler:
         # With umqtt.robust, allow automatic reconnection attempts
         if self._mqtt is None:
             if self.debug:
-                print("❌ MQTT client not initialized - cannot send batch")
+                print("MQTT client not initialized - cannot send batch")
             return False
 
         if not messages:
@@ -406,7 +415,7 @@ class MQTTHandler:
         total_messages = len(messages)
 
         if self.debug:
-            print(f"📦 Sending batch of {total_messages} messages in {len(chunks)} chunks")
+            print(f"Sending batch of {total_messages} messages in {len(chunks)} chunks")
 
         for chunk_idx, chunk in enumerate(chunks):
             try:
@@ -417,23 +426,23 @@ class MQTTHandler:
                     elif is_connection_error:
                         connection_error_count += 1
                         if self.debug:
-                            print(f"❌ Connection error sending message in batch: {msg}")
+                            print(f"Connection error sending message in batch: {msg}")
                     else:
                         if self.debug:
-                            print(f"❌ Validation error sending message in batch: {msg}")
+                            print(f"Validation error sending message in batch: {msg}")
 
             except Exception as e:
                 if self.debug:
-                    print(f"❌ Error sending batch chunk {chunk_idx}: {e}")
+                    print(f"Error sending batch chunk {chunk_idx}: {e}")
                 connection_error_count += 1
 
         if self.debug:
             if success_count == total_messages:
-                print(f"✅ Batch send complete: {success_count}/{total_messages} messages sent successfully")
+                print(f"Batch send complete: {success_count}/{total_messages} messages sent successfully")
             elif connection_error_count > 0:
-                print(f"❌ Batch send failed: {connection_error_count} connection errors")
+                print(f"Batch send failed: {connection_error_count} connection errors")
             else:
-                print(f"⚠️ Batch send partial: {success_count}/{total_messages} messages sent")
+                print(f"Batch send partial: {success_count}/{total_messages} messages sent")
 
         return connection_error_count == 0
 
@@ -449,7 +458,7 @@ class MQTTHandler:
         """
         if self._mqtt is None:
             if self.debug:
-                print("❌ MQTT client not initialized - cannot check messages")
+                print("MQTT client not initialized - cannot check messages")
             return False
 
         try:
@@ -461,7 +470,7 @@ class MQTTHandler:
             return True
         except Exception as e:
             if self.debug:
-                print(f"❌ Error checking messages: {e}")
+                print(f"Error checking messages: {e}")
             # Mark as disconnected - robust will attempt reconnection on next operation
             self.connected = False
             return False
@@ -470,15 +479,15 @@ class MQTTHandler:
         try:
             if self._mqtt:
                 if self.debug:
-                    print("🔌 Disconnecting MQTT client")
+                    print("Disconnecting MQTT client")
                 self._mqtt.disconnect()
                 self._mqtt = None
             self.connected = False
             if self.debug:
-                print("✅ MQTT cleanup completed")
+                print("MQTT cleanup completed")
         except Exception as e:
             if self.debug:
-                print(f"❌ Error during MQTT cleanup: {e}")
+                print(f"Error during MQTT cleanup: {e}")
 
     def send_file_system_command_response(self, output="", error="", exit_code=0, request_id=None):
         response_data = {
