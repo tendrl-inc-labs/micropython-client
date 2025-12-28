@@ -130,6 +130,9 @@ def _extract_hostname_from_url(url):
     return url
 
 
+# Maximum FPS supported by the streaming server
+MAX_FPS = 30
+
 def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=4096,
                      yield_every_bytes=32*1024, yield_ms=1, target_fps=25,
                      gc_interval=1024, reconnect_delay=5000, yield_interval=10,
@@ -145,6 +148,17 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=4096,
         ASYNCIO_AVAILABLE = True
     except ImportError:
         ASYNCIO_AVAILABLE = False
+
+    # Validate target_fps against server maximum
+    if target_fps > MAX_FPS:
+        raise ValueError(
+            f"Target FPS ({target_fps}) exceeds server maximum ({MAX_FPS} FPS). "
+            f"Please set target_fps to {MAX_FPS} or lower."
+        )
+    elif target_fps <= 0:
+        raise ValueError(
+            f"Invalid target_fps ({target_fps}). Must be greater than 0 and not exceed {MAX_FPS} FPS."
+        )
 
     # Get server hostname from client config (always use TLS, port 443)
     app_url = client_instance.config.get("app_url", "https://app.tendrl.com")

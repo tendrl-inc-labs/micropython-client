@@ -677,11 +677,18 @@ class Client:
             chunk_size: Size of chunks to send (default: 4096)
             yield_every_bytes: Yield to event loop after sending this many bytes (default: 32KB)
             yield_ms: Milliseconds to sleep when yielding (default: 1)
-            target_fps: Target frames per second (default: 25)
+            target_fps: Target frames per second (default: 25, maximum: 30)
             gc_interval: Run garbage collection every N frames (default: 1024, 0 to disable)
             reconnect_delay: Milliseconds to wait before reconnecting (default: 5000)
             yield_interval: Yield to event loop every N frames (default: 10, 0 to disable)
             debug: Enable debug logging (default: False)
+        
+        Raises:
+            ValueError: If target_fps exceeds 30 or is <= 0
+        
+        Note:
+            The server enforces a maximum of 30 FPS. If target_fps exceeds 30,
+            a ValueError will be raised.
         
         Returns:
             The background task (if async mode) or None (if sync mode)
