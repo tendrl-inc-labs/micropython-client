@@ -18,12 +18,12 @@ class NetworkManager:
                 )
                 if not wlan.isconnected():
                     if self.debug:
-                        print("❌ Failed to establish network connection")
+                        print("Failed to establish network connection")
                     return None
                 try:
                     ntp_time()
                 except Exception as ntp_err:
-                    print(f"❌ NTP time sync failed: {ntp_err}")
+                    print(f"NTP time sync failed: {ntp_err}")
 
             # Network connection successful
             if self.debug:
@@ -31,7 +31,7 @@ class NetworkManager:
             return True
         except Exception as e:
             if self.debug:
-                print(f"❌ Unexpected connection error: {e}")
+                print(f"Unexpected connection error: {e}")
             return None
 
     def is_connected(self):

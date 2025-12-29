@@ -168,25 +168,40 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=4096,
 
     async def stream_loop():
         """Async stream loop that yields control periodically"""
+        # Always print startup message to confirm task is running
+        print(f"📹 Streaming task started - target: {server_host}:{port}, FPS: {target_fps}")
+        if debug:
+            print(f"📹 Streaming debug enabled")
         s = None
         while True:
             try:
                 # Ensure network connection via network manager (client handles networking)
                 if not client_instance.network.connect():
                     if debug:
-                        print("Failed to connect network")
+                        print("📹 Streaming: Failed to connect network, retrying...")
                     await asyncio.sleep(reconnect_delay / 1000.0)
                     continue
+                
+                if debug:
+                    print(f"📹 Streaming: Network connected, attempting server connection...")
 
                 # Create socket and connect
                 try:
+                    if debug:
+                        print(f"📹 Streaming: Resolving {server_host}:{port}...")
                     s = socket.socket()
                     addr = socket.getaddrinfo(server_host, port)[0][-1]
+                    if debug:
+                        print(f"📹 Streaming: Connecting to {addr}...")
                     s.connect(addr)
+                    if debug:
+                        print(f"📹 Streaming: Wrapping with TLS...")
                     s = ssl.wrap_socket(s, server_hostname=server_host)
+                    if debug:
+                        print(f"📹 Streaming: Connected to server!")
                 except Exception as e:
                     if debug:
-                        print(f"Connection error: {e}")
+                        print(f"📹 Streaming: Connection error: {e}")
                     if s:
                         try:
                             s.close()
@@ -204,6 +219,8 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=4096,
 
                 first_frame = None
                 try:
+                    if debug:
+                        print("📹 Streaming: Capturing first frame...")
                     # Get first frame from capture function
                     result = capture_frame_func()
                     # If result is a coroutine (awaitable), await it
@@ -218,12 +235,14 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=4096,
 
                     if not isinstance(first_frame, (bytes, bytearray)) or not first_frame or len(first_frame) == 0:
                         if debug:
-                            print("Warning: Empty or invalid first frame, will retry...")
+                            print("📹 Streaming: Warning: Empty or invalid first frame, will retry...")
                         await asyncio.sleep(1.0)
                         continue  # Retry connection
+                    if debug:
+                        print(f"📹 Streaming: First frame captured ({len(first_frame)} bytes)")
                 except Exception as func_err:
                     if debug:
-                        print(f"Error capturing first frame: {func_err}")
+                        print(f"📹 Streaming: Error capturing first frame: {func_err}")
                     await asyncio.sleep(1.0)
                     continue  # Retry connection
 
@@ -242,12 +261,14 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=4096,
                 complete_request = request_headers + frame_header + first_frame + b"\r\n"
 
                 try:
+                    if debug:
+                        print(f"📹 Streaming: Sending HTTP request + first frame ({len(complete_request)} bytes)...")
                     await send_all_async(s, complete_request, yield_every_bytes, yield_ms)
                     if debug:
-                        print("✓ HTTP request + first frame sent successfully!")
+                        print("✅ Streaming: HTTP request + first frame sent successfully! Starting stream...")
                 except Exception as e:
                     if debug:
-                        print(f"Error sending request+frame: {e}")
+                        print(f"❌ Streaming: Error sending request+frame: {e}")
                     break
 
                 # Stream remaining frames

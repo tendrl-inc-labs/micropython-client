@@ -77,7 +77,7 @@ class QueueManager:
             self.put(msg)
         except Exception as e:
             if self.debug:
-                print(f"❌ Queue full error: {e}")
+                print(f"Queue full error: {e}")
             return False
 
     def process_batch(self):
@@ -103,7 +103,7 @@ class QueueManager:
             return None
         except Exception as e:
             if self.debug:
-                print(f"❌ Batch error: {e}")
+                print(f"Batch error: {e}")
             for msg in reversed(batch):
                 self.queue.put(msg)
             return None

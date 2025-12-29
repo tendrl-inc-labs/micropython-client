@@ -1,28 +1,9 @@
-"""
-JPEG Streaming Example
-
-This example demonstrates how to use the start_streaming method
-for streaming JPEG frames with configurable performance settings.
-
-IMPORTANT: Streaming REQUIRES async mode!
-- Use Client(mode="async") 
-- Streaming automatically runs as a background task
-- Works with messaging (MQTT) on the same event loop
-
-NOTE: This requires the optional streaming module to be installed.
-Install it by:
-1. Setting INSTALL_STREAMING=True in install_script.py, OR
-2. Manually: mip.install("github:tendrl-inc-labs/micropython-client/package-streaming.json", target="/lib")
-"""
-
 import asyncio
+import sensor
 
-try:
-    from tendrl import Client
-    import sensor
-except ImportError as e:
-    print(f"Import error: {e}")
-    print("This example requires the tendrl client and sensor module")
+
+from tendrl import Client
+
 
 def setup_camera():
     """Configure camera settings"""
@@ -61,7 +42,8 @@ async def main():
     client.start()
 
     # Wait a moment for connection
-    await asyncio.sleep(2)
+    await asyncio.sleep(10)
+
 
     # Start streaming with default settings (25 FPS)
     # Automatically handles background task - no need to call add_background_task()
@@ -78,28 +60,7 @@ async def main():
     finally:
         await client.async_stop()
 
-# Example 1: Basic streaming with default settings
 if __name__ == "__main__":
     # Run the async main function
     asyncio.run(main())
 
-# Example 2: High-performance streaming with custom tuning
-# client.start_streaming(
-#     capture_frame,
-#     chunk_size=4096,           # Larger chunks for better throughput
-#     yield_every_bytes=32*1024, # Minimize yields for better throughput
-#     yield_ms=1,                 # Minimal yield delay
-#     target_fps=25,              # Target 25 FPS
-#     gc_interval=1024,            # Run GC every 1024 frames
-#     reconnect_delay=5000,        # 5 second delay before reconnecting
-#     debug=True
-# )
-
-# Example 3: Lower quality, higher FPS streaming
-# client.start_streaming(
-#     capture_frame_fast,
-#     chunk_size=8192,            # Even larger chunks
-#     yield_every_bytes=64*1024,  # Less frequent yields
-#     target_fps=30,              # Higher FPS target
-#     debug=False
-# )

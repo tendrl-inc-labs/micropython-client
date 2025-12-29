@@ -136,8 +136,10 @@ class Client:
                 if offline_storage:
                     try:
                         from tendrl.lib.microtetherdb.db import MicroTetherDB
+                        from tendrl.config_manager import get_root_dir
+                        root_dir = get_root_dir()
                         self._db = MicroTetherDB(
-                            filename="/lib/tendrl/tether.db",
+                            filename=f"{root_dir}/lib/tendrl/tether.db",
                             in_memory=False,
                             btree_pagesize=db_page_size,
                             event_loop=database_event_loop
@@ -155,8 +157,10 @@ class Client:
                 if client_db:
                     try:
                         from tendrl.lib.microtetherdb.db import MicroTetherDB
+                        from tendrl.config_manager import get_root_dir
+                        root_dir = get_root_dir()
                         self._client_db = MicroTetherDB(
-                            filename="/lib/tendrl/client_db.db",
+                            filename=f"{root_dir}/lib/tendrl/client_db.db",
                             in_memory=client_db_in_memory,
                             btree_pagesize=1024,
                             ram_percentage=10,
@@ -601,9 +605,25 @@ class Client:
                 print("Background tasks only available in async mode")
             return None
 
-        task = asyncio.create_task(coro)
-        self._tasks.append(task)
-        return task
+        try:
+            # Use the same pattern as start() - try user loop first, then asyncio.create_task
+            if self._user_event_loop:
+                task = self._user_event_loop.create_task(coro)
+            else:
+                # Use asyncio.create_task() directly (same as in start() method)
+                task = asyncio.create_task(coro)
+            self._tasks.append(task)
+            if self.debug:
+                print(f"✅ Background task created: {type(coro).__name__}")
+            return task
+        except RuntimeError as e:
+            if self.debug:
+                print(f"❌ Error creating background task: {e}")
+            return None
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Unexpected error creating background task: {e}")
+            return None
 
     def tether(self, write_offline=False, db_ttl=None, tags=None, entity=""):
         def wrapper(func):
@@ -667,7 +687,7 @@ class Client:
     def start_streaming(self, capture_frame_func, chunk_size=4096, 
                        yield_every_bytes=32*1024, yield_ms=1, target_fps=25, 
                        gc_interval=1024, reconnect_delay=5000, yield_interval=10, 
-                       debug=False):
+                       debug=None):
         """
         Start streaming JPEG frames to the server.
         Automatically adds the streaming task to the background task queue.
@@ -711,17 +731,44 @@ class Client:
                 "or manually install tendrl/streaming.py"
             )
 
-        stream_coro = start_jpeg_stream(
+        # Use self.debug if debug not explicitly provided (None means use self.debug)
+        stream_debug = self.debug if debug is None else debug
+        
+        if stream_debug:
+            print(f"📹 Starting streaming with FPS={target_fps}, chunk_size={chunk_size}")
+        
+        stream_loop_func = start_jpeg_stream(
             self,
             capture_frame_func,
             chunk_size, yield_every_bytes, yield_ms,
             target_fps, gc_interval,
-            reconnect_delay, yield_interval, debug
+            reconnect_delay, yield_interval, stream_debug
         )
 
         # Automatically add to background tasks if in async mode
         if self.mode == "async":
-            return self.add_background_task(stream_coro)
+            # Call the coroutine function to get the actual coroutine/generator
+            try:
+                stream_coro = stream_loop_func()
+                # In MicroPython, async functions might return generators instead of coroutines
+                # asyncio.create_task() can handle both in MicroPython
+                # Just try to create the task - it will work if it's awaitable
+                task = self.add_background_task(stream_coro)
+                if stream_debug:
+                    if task:
+                        print(f"✅ Streaming task created and added to background tasks (type: {type(stream_coro).__name__})")
+                    else:
+                        print("⚠️ Streaming task creation failed - check event loop")
+                return task
+            except Exception as e:
+                if stream_debug:
+                    print(f"❌ Error calling stream_loop_func() or creating task: {e}")
+                    try:
+                        import sys
+                        sys.print_exception(e)
+                    except:
+                        pass
+                return None
         else:
             # In sync mode, we can't run async coroutines directly
             # User would need to handle this differently or use async mode

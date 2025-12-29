@@ -1,6 +1,5 @@
 import json
 import time
-import _thread
 import requests
 import gc
 
@@ -8,10 +7,12 @@ try:
     from umqtt.simple import MQTTException
     from umqtt.robust import MQTTClient
     QOS = 1
+    MQTT_SSL_ENABLED = True
 except ImportError:
     try:
         from mqtt import MQTTClient, MQTTException
         QOS = 0
+        MQTT_SSL_ENABLED = False
     except ImportError:
         print("Warning: mqtt not available")
 
@@ -26,7 +27,6 @@ class MQTTHandler:
     """
     def __init__(self, config, debug=False, callback=None):
         self._mqtt = None
-        self._mqtt_lock = _thread.allocate_lock()
         self.config = config
         self.debug = debug
         self.connected = False  # Tracks connection state, but robust handles reconnection
@@ -83,7 +83,6 @@ class MQTTHandler:
 
             if self.debug:
                 print(f"API Response Status: {response.status_code}")
-                print(f"API Response: {response.text}")
 
             if response.status_code == 200:
                 gc.collect()
@@ -192,7 +191,7 @@ class MQTTHandler:
         mqtt_ssl = self.config.get("mqtt_ssl")
 
         if self.debug:
-            print(f"MQTT config: {mqtt_host}:{mqtt_port} (SSL: {mqtt_ssl})")
+            print(f"MQTT config: {mqtt_host}:{mqtt_port})")
 
         # Validate MQTT host configuration
         if not mqtt_host or mqtt_host.strip() == "":
@@ -214,7 +213,6 @@ class MQTTHandler:
             print(f"Connecting to MQTT broker: {mqtt_host}:{mqtt_port}")
             print(f"Client ID: {client_id}")
             print(f"Username: {username}")
-            print(f"TLS: {mqtt_ssl}")
 
         try:
             max_retries = 3
@@ -226,21 +224,45 @@ class MQTTHandler:
                         except Exception as close_err:
                             if self.debug:
                                 print(f"Error disconnecting existing MQTT client: {close_err}")
-                    self._mqtt = MQTTClient(
-                        client_id=client_id,
-                        server=mqtt_host,
-                        port=mqtt_port,
-                        user=username,
-                        password=password,
-                        keepalive=300,
-                        ssl=mqtt_ssl,
-                        ssl_params={"server_hostname": mqtt_host}
-                    )
+
+                    # Build MQTT client parameters conditionally
+                    # umqtt.robust supports ssl/ssl_params, but mqtt(openMV) does not have ssl param
+                    mqtt_params = {
+                        "client_id": client_id,
+                        "server": mqtt_host,
+                        "port": mqtt_port,
+                        "user": username,
+                        "password": password,
+                        "keepalive": 300,
+                    }
+
+                    # Add SSL parameters if SSL is enabled
+                    # ssl_params is needed for both umqtt.robust and mqtt(openMV) module
+                    if mqtt_ssl:
+                        if MQTT_SSL_ENABLED:
+                            # umqtt.robust supports ssl parameter
+                            mqtt_params["ssl"] = mqtt_ssl
+                        # ssl_params is needed for both implementations
+                        mqtt_params["ssl_params"] = {"server_hostname": mqtt_host}
+
+                    self._mqtt = MQTTClient(**mqtt_params)
 
                     self._mqtt.set_callback(self._on_message)
 
                     if self.debug:
                         print("Attempting to connect...")
+                    
+                    # On OpenMV, the first SSL connection can be slow due to SSL stack initialization
+                    # The SSL context needs to be created and certificates loaded on first use
+                    # This can cause ETIMEDOUT on the first attempt, but retries succeed
+                    # Add a small delay before first attempt to allow SSL context to initialize
+                    if attempt == 0 and not MQTT_SSL_ENABLED and mqtt_ssl:
+                        # OpenMV's mqtt module - first SSL connection needs warm-up time
+                        # Give SSL stack a moment to initialize before attempting connection
+                        if self.debug:
+                            print("   (OpenMV: Allowing SSL stack initialization time...)")
+                        time.sleep(2)  # 2 seconds for SSL context initialization
+                    
                     gc.collect()
                     self._mqtt.connect()
                     gc.collect()
@@ -262,7 +284,7 @@ class MQTTHandler:
                 except MQTTException as mqtt_err:
                     if self.debug:
                         print(f"MQTT connection error (Attempt {attempt + 1}): {mqtt_err}")
-                        print(f"   Host: {mqtt_host}, Port: {mqtt_port}, SSL: {mqtt_ssl}")
+                        print(f"   Host: {mqtt_host}, Port: {mqtt_port}")
                     self.connected = False
                     time.sleep(2**attempt)
                     continue
@@ -270,7 +292,7 @@ class MQTTHandler:
                     if self.debug:
                         print(f"Unexpected MQTT connection error (Attempt {attempt + 1}): {e}")
                         print(f"   Error type: {type(e).__name__}")
-                        print(f"   Host: {mqtt_host}, Port: {mqtt_port}, SSL: {mqtt_ssl}")
+                        print(f"   Host: {mqtt_host}, Port: {mqtt_port}")
                     self.connected = False
                     time.sleep(2**attempt)
                     continue

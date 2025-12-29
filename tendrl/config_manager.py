@@ -1,8 +1,31 @@
 import json
 import time
+import os
 
-FROZEN_CONFIG_PATH = "/lib/tendrl/config.json"
-USER_CONFIG_PATH = "/config.json"
+def get_root_dir():
+    """
+    Detect the root directory for the filesystem.
+    OpenMV uses /flash, regular MicroPython uses /.
+    """
+    # Try to detect OpenMV by checking if /flash exists and is accessible
+    try:
+        os.statvfs("/flash")
+        # If /flash exists, check if /lib exists in /flash (OpenMV structure)
+        try:
+            os.listdir("/flash/lib")
+            return "/flash"
+        except OSError:
+            # /flash exists but /lib might not be there yet, still use /flash
+            return "/flash"
+    except OSError:
+        # /flash doesn't exist, use regular MicroPython root
+        return "/"
+
+# Get root directory once at module load
+_ROOT_DIR = get_root_dir()
+
+FROZEN_CONFIG_PATH = f"{_ROOT_DIR}/lib/tendrl/config.json"
+USER_CONFIG_PATH = f"{_ROOT_DIR}/config.json"
 USER_CONFIG_KEYS = ["api_key", "wifi_ssid", "wifi_pw", "reset"]
 
 def read_config():
@@ -13,7 +36,7 @@ def read_config():
             if user_config_content.strip():  # Only try to parse if file has content
                 user_config = json.loads(user_config_content)
     except (OSError, ValueError) as e:
-        print(f"❌ Error reading user config: {e}")
+        print(f"Error reading user config: {e}")
         user_config = {}
 
     frozen_config = {}
@@ -59,7 +82,7 @@ def save_config(config):
             json.dump(existing_config, f)
         return True
     except (OSError, ValueError) as e:
-        print(f"❌ Error saving config: {e}")
+        print(f"Error saving config: {e}")
         return False
 
 
@@ -75,14 +98,14 @@ def update_config(api_key_id="", subject=""):
 
         return save_config(config)
     except Exception as e:
-        print(f"❌ Error updating config: {e}")
+        print(f"Error updating config: {e}")
         return False
 
 def update_entity_cache(api_key_id="", subject=""):
     """Simplified function to update only entity cache (jti and subject)"""
     try:
         # Use a separate cache file to avoid touching user config
-        cache_file = "/lib/tendrl/entity_cache.json"
+        cache_file = f"{_ROOT_DIR}/lib/tendrl/entity_cache.json"
         cache_data = {
             "api_key_id": api_key_id,
             "subject": subject,
@@ -94,13 +117,13 @@ def update_entity_cache(api_key_id="", subject=""):
 
         return True
     except Exception as e:
-        print(f"❌ Error updating entity cache: {e}")
+        print(f"Error updating entity cache: {e}")
         return False
 
 def get_entity_cache():
     """Get cached entity info from separate cache file"""
     try:
-        cache_file = "/lib/tendrl/entity_cache.json"
+        cache_file = f"{_ROOT_DIR}/lib/tendrl/entity_cache.json"
         with open(cache_file, "r", encoding="utf-8") as f:
             cache_data = json.load(f)
             return cache_data.get("api_key_id"), cache_data.get("subject")
@@ -110,13 +133,12 @@ def get_entity_cache():
 def clear_entity_cache():
     try:
         # Remove the separate cache file
-        cache_file = "/lib/tendrl/entity_cache.json"
-        import os
+        cache_file = f"{_ROOT_DIR}/lib/tendrl/entity_cache.json"
         try:
             os.remove(cache_file)
         except OSError:
             pass  # File doesn't exist
         return True
     except Exception as e:
-        print(f"❌ Error clearing entity cache: {e}")
+        print(f"Error clearing entity cache: {e}")
         return False
