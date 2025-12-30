@@ -136,7 +136,7 @@ MAX_FPS = 30
 def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                      yield_every_bytes=8*1024, yield_ms=1, target_fps=25,
                      gc_interval=250, reconnect_delay=5000, yield_interval=3,
-                     debug=False):
+                     stream_duration=-1, debug=False):
 
     import socket
     import ssl
@@ -169,11 +169,22 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
     async def stream_loop():
         """Async stream loop that yields control periodically"""
         # Always print startup message to confirm task is running
-        print(f"📹 Streaming task started - target: {server_host}:{port}, FPS: {target_fps}")
+        duration_msg = f" for {stream_duration}s" if stream_duration > 0 else " (indefinite)"
+        print(f"📹 Streaming task started - target: {server_host}:{port}, FPS: {target_fps}{duration_msg}")
         if debug:
             print(f"📹 Streaming debug enabled")
         s = None
+        # Convert duration to milliseconds for ticks_ms (more performant than time.time())
+        duration_ms = int(stream_duration * 1000) if stream_duration > 0 else None
+        start_time = time.ticks_ms() if duration_ms else None
         while True:
+            # Check if duration has elapsed (using ticks_ms for better performance)
+            if duration_ms and start_time:
+                elapsed_ms = time.ticks_diff(time.ticks_ms(), start_time)
+                if elapsed_ms >= duration_ms:
+                    if debug:
+                        print(f"📹 Streaming duration ({stream_duration}s) elapsed, stopping...")
+                    break
             try:
                 # Ensure network connection via network manager (client handles networking)
                 if not client_instance.network.connect():
@@ -316,6 +327,15 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                         break
 
                     frame_count += 1
+
+                    # Check if duration has elapsed (check periodically during frame loop)
+                    # Using ticks_ms for better performance (integer-based, faster than time.time())
+                    if duration_ms and start_time:
+                        elapsed_ms = time.ticks_diff(time.ticks_ms(), start_time)
+                        if elapsed_ms >= duration_ms:
+                            if debug:
+                                print(f"📹 Streaming duration ({stream_duration}s) elapsed, stopping...")
+                            break
 
                     # Explicit GC to prevent large automatic GC freezes
                     # More frequent, smaller GCs reduce system-wide freeze duration

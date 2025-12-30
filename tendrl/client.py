@@ -117,6 +117,7 @@ class Client:
                     print("Using user-provided event loop for client")
             self._stop_event = asyncio.Event()
             self._tasks = []
+            self._streaming_task = None  # Store reference to streaming task for stop control
         if BTREE_AVAILABLE and managed:
             try:
                 database_event_loop = None
@@ -684,16 +685,29 @@ class Client:
             return async_wrapped_function if is_async else sync_wrapped_function
         return wrapper
 
-    def start_streaming(self, capture_frame_func, chunk_size=2048, 
+    def start_streaming(self, capture_frame_func=None, chunk_size=2048, 
                        yield_every_bytes=8*1024, yield_ms=1, target_fps=25, 
                        gc_interval=250, reconnect_delay=5000, yield_interval=3, 
-                       debug=None):
+                       camera_config=None, camera_setup_func=None, 
+                       stream_duration=-1, debug=None):
         """
         Start streaming JPEG frames to the server.
         Automatically adds the streaming task to the background task queue.
         
         Args:
-            capture_frame_func: Function that returns JPEG frame bytes (can be sync or async)
+            capture_frame_func: Function that returns JPEG frame bytes (can be sync or async).
+                                If None and sensor module is available, uses default capture function.
+            camera_config: Optional dict with camera settings. Keys:
+                          - framesize: Sensor frame size (e.g., sensor.VGA, sensor.QVGA)
+                          - quality: JPEG quality 0-100 (default: 60)
+                          - pixformat: Pixel format (default: sensor.JPEG)
+                          - skip_frames_time: Time to skip frames for stabilization in ms (default: 1500)
+            camera_setup_func: Optional function to call for camera setup. If provided, 
+                              this is called instead of using camera_config. If None and 
+                              camera_config is provided, camera is set up automatically.
+            stream_duration: Duration in seconds to stream before auto-stopping.
+                            If -1 (default), streams indefinitely until stop_streaming() is called.
+                            If > 0, streams for that many seconds then auto-stops.
             chunk_size: Size of chunks to send (default: 2048)
             yield_every_bytes: Yield to event loop after sending this many bytes (default: 8KB)
             yield_ms: Milliseconds to sleep when yielding (default: 1)
@@ -705,6 +719,7 @@ class Client:
         
         Raises:
             ValueError: If target_fps exceeds 30 or is <= 0
+            ImportError: If sensor module is not available and capture_frame_func is None
         
         Note:
             The server enforces a maximum of 30 FPS. If target_fps exceeds 30,
@@ -713,14 +728,31 @@ class Client:
         Returns:
             The background task (if async mode) or None (if sync mode)
         
-        Example:
-            def capture_frame():
-                import sensor
-                img = sensor.snapshot()
-                return img.bytearray()
+        Examples:
+            # Simple usage with default camera (OpenMV) - streams forever
+            client.start_streaming()  # stream_duration=-1 by default (forever)
             
-            # Start streaming - automatically handles background task
-            client.start_streaming(capture_frame, target_fps=25)
+            # Stream for 30 seconds then auto-stop
+            client.start_streaming(stream_duration=30)
+            
+            # Configurable camera settings
+            client.start_streaming(
+                camera_config={"framesize": sensor.VGA, "quality": 60}
+            )
+            
+            # Motion detection example
+            # if detect_motion():
+            #     client.start_streaming(stream_duration=60)  # Stream for 1 minute
+            
+            # Stop streaming manually
+            # if client.is_streaming():
+            #     client.stop_streaming()
+            
+            # Custom capture function
+            # def capture_frame():
+            #     img = sensor.snapshot()
+            #     return img.bytearray()
+            # client.start_streaming(capture_frame, target_fps=25)
         """
         try:
             from .streaming import start_jpeg_stream
@@ -734,6 +766,51 @@ class Client:
         # Use self.debug if debug not explicitly provided (None means use self.debug)
         stream_debug = self.debug if debug is None else debug
 
+        # Handle camera setup and default capture function
+        if capture_frame_func is None:
+            # Try to use default camera capture if sensor module is available
+            try:
+                import sensor
+                
+                # Setup camera if config or setup function provided
+                if camera_setup_func:
+                    if stream_debug:
+                        print("📹 Setting up camera with custom setup function...")
+                    camera_setup_func()
+                elif camera_config:
+                    if stream_debug:
+                        print(f"📹 Setting up camera with config: {camera_config}")
+                    sensor.reset()
+                    sensor.set_pixformat(camera_config.get("pixformat", sensor.JPEG))
+                    sensor.set_framesize(camera_config.get("framesize", sensor.VGA))
+                    sensor.set_quality(camera_config.get("quality", 60))
+                    skip_frames_time = camera_config.get("skip_frames_time", 1500)
+                    sensor.skip_frames(time=skip_frames_time)
+                else:
+                    # Default camera setup if no config provided
+                    if stream_debug:
+                        print("📹 Setting up camera with default settings...")
+                    sensor.reset()
+                    sensor.set_pixformat(sensor.JPEG)
+                    sensor.set_framesize(sensor.VGA)
+                    sensor.set_quality(60)
+                    sensor.skip_frames(time=1500)
+                
+                # Create default capture function
+                def default_capture_frame():
+                    img = sensor.snapshot()
+                    return img.bytearray()
+                
+                capture_frame_func = default_capture_frame
+                if stream_debug:
+                    print("✅ Using default camera capture function")
+                    
+            except ImportError:
+                raise ImportError(
+                    "Camera capture function required. Either provide capture_frame_func, "
+                    "or ensure sensor module is available for default camera support."
+                )
+        
         if stream_debug:
             print(f"📹 Starting streaming with FPS={target_fps}, chunk_size={chunk_size}")
 
@@ -742,7 +819,7 @@ class Client:
             capture_frame_func,
             chunk_size, yield_every_bytes, yield_ms,
             target_fps, gc_interval,
-            reconnect_delay, yield_interval, stream_debug
+            reconnect_delay, yield_interval, stream_duration, stream_debug
         )
 
         # Automatically add to background tasks if in async mode
@@ -754,9 +831,12 @@ class Client:
                 # asyncio.create_task() can handle both in MicroPython
                 # Just try to create the task - it will work if it's awaitable
                 task = self.add_background_task(stream_coro)
+                # Store reference for stop control
+                self._streaming_task = task
                 if stream_debug:
                     if task:
-                        print(f"✅ Streaming task created and added to background tasks (type: {type(stream_coro).__name__})")
+                        duration_msg = f" for {stream_duration}s" if stream_duration > 0 else " (indefinite)"
+                        print(f"✅ Streaming task created and added to background tasks{duration_msg}")
                     else:
                         print("⚠️ Streaming task creation failed - check event loop")
                 return task
@@ -775,6 +855,47 @@ class Client:
             if self.debug:
                 print("Warning: Streaming requires async mode. Use Client(mode='async')")
             return None
+
+    def stop_streaming(self):
+        """
+        Stop the currently running streaming task.
+        
+        Returns:
+            bool: True if streaming was stopped, False if no streaming task was running
+        """
+        if self._streaming_task is None:
+            if self.debug:
+                print("⚠️ No streaming task to stop")
+            return False
+        
+        try:
+            if hasattr(self._streaming_task, "done") and not self._streaming_task.done():
+                self._streaming_task.cancel()
+                if self.debug:
+                    print("🛑 Streaming task cancelled")
+            # Remove from tasks list if it's there
+            if self._streaming_task in self._tasks:
+                self._tasks.remove(self._streaming_task)
+            self._streaming_task = None
+            return True
+        except Exception as e:
+            if self.debug:
+                print(f"Error stopping streaming: {e}")
+            self._streaming_task = None
+            return False
+    
+    def is_streaming(self):
+        """
+        Check if streaming is currently active.
+        
+        Returns:
+            bool: True if streaming task is running, False otherwise
+        """
+        if self._streaming_task is None:
+            return False
+        if hasattr(self._streaming_task, "done"):
+            return not self._streaming_task.done()
+        return True
 
     def publish(
         self,

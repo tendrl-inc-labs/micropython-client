@@ -24,12 +24,12 @@ except ImportError as e:
     print("For camera support, also requires the sensor module")
 
 def setup_camera():
-    """Configure camera settings"""
+    """Configure camera settings (optional - can use camera_config instead)"""
     try:
         sensor.reset()
         sensor.set_pixformat(sensor.JPEG)
         sensor.set_framesize(sensor.VGA)
-        sensor.set_quality(75)
+        sensor.set_quality(60)
         sensor.skip_frames(time=1500)
         print("✅ Camera initialized")
         return True
@@ -41,8 +41,7 @@ def setup_camera():
         return False
 
 def capture_frame():
-    """Capture a frame and return JPEG bytes (synchronous)"""
-
+    """Capture a frame and return JPEG bytes (optional - default capture used if not provided)"""
     img = sensor.snapshot()
     return img.bytearray()
 
@@ -53,9 +52,6 @@ async def main():
     print("=" * 60)
     print("Tendrl Client: Streaming + Messaging Example")
     print("=" * 60)
-
-    # Initialize camera
-    camera_available = setup_camera()
 
     # Create client in async mode (REQUIRED for streaming)
     client = Client(
@@ -80,22 +76,47 @@ async def main():
     # Wait a moment for connection
     await asyncio.sleep(2)
 
-    # Start streaming
-    # This automatically adds streaming as a background task
+    # Start streaming - Option 1: Simplest usage (uses default camera settings)
+    # Camera is automatically set up with defaults (VGA, quality 60)
     print("\n📹 Starting video stream...")
-    if camera_available:
+    try:
         stream_task = client.start_streaming(
-            capture_frame,              # Capture function (can be sync or async)
             target_fps=25,              # Target 25 FPS
-            chunk_size=2048,            # 2KB chunks
-            yield_every_bytes=8*1024,  # Yield every 8KB (optimized for fewer drops)
-            yield_ms=1,                 # 1ms yield delay
             debug=True                  # Enable streaming debug
         )
         print("✅ Streaming started as background task")
-    else:
-        print("⚠️ Camera not available - skipping streaming")
+    except ImportError:
+        print("⚠️ Camera module not available - skipping streaming")
         stream_task = None
+    
+    # Option 2: Configurable usage with camera_config
+    # stream_task = client.start_streaming(
+    #     camera_config={
+    #         "framesize": sensor.VGA,  # 640x480
+    #         "quality": 60,            # JPEG quality (lower = less memory pressure)
+    #         "skip_frames_time": 1500  # Stabilization time in ms
+    #     },
+    #     target_fps=25,
+    #     chunk_size=2048,
+    #     yield_every_bytes=8*1024,
+    #     yield_ms=1,
+    #     debug=True
+    # )
+    
+    # Option 3: Custom setup function
+    # stream_task = client.start_streaming(
+    #     camera_setup_func=setup_camera,
+    #     target_fps=25,
+    #     debug=True
+    # )
+    
+    # Option 4: Custom capture function (most control)
+    # setup_camera()  # Setup camera first
+    # stream_task = client.start_streaming(
+    #     capture_frame,
+    #     target_fps=25,
+    #     debug=True
+    # )
 
     # Example: Publish some data while streaming
     print("\n📤 Publishing messages while streaming...")
@@ -142,15 +163,20 @@ def simple_example():
     print("Simple Streaming + Messaging Example")
     print("=" * 60)
 
-    # Setup camera
-    setup_camera()
-
     # Create and start client
     client = Client(mode="async", debug=True)
     client.start()
 
-    # Start streaming - that's it!
-    client.start_streaming(capture_frame, target_fps=25, debug=True)
+    # Start streaming - simplest usage (uses default camera settings)
+    # Camera is automatically set up with defaults (VGA, quality 60)
+    client.start_streaming(target_fps=25, debug=True)
+    
+    # Or use configurable option:
+    # client.start_streaming(
+    #     camera_config={"framesize": sensor.VGA, "quality": 60},
+    #     target_fps=25,
+    #     debug=True
+    # )
 
     print("✅ Streaming and messaging are running!")
     print("   Press Ctrl+C to stop")

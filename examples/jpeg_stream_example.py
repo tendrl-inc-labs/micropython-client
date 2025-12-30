@@ -1,28 +1,10 @@
 import asyncio
 import sensor
 
-
 from tendrl import Client
-
-
-def setup_camera():
-    """Configure camera settings"""
-    sensor.reset()
-    sensor.set_pixformat(sensor.JPEG)
-    sensor.set_framesize(sensor.VGA)
-    sensor.set_quality(65)
-    sensor.skip_frames(time=1500)
-
-def capture_frame():
-    """Capture a frame and return JPEG bytes"""
-    img = sensor.snapshot()
-    return img.bytearray()
 
 async def main():
     """Main async function - required for async mode"""
-    # Setup camera first
-    setup_camera()
-
     # Initialize the Tendrl client in ASYNC mode (REQUIRED for streaming)
     # You can enable or disable MQTT messaging:
     client = Client(
@@ -37,10 +19,33 @@ async def main():
     # Wait a moment for connection
     await asyncio.sleep(10)
 
-
-    # Start streaming with default settings (25 FPS)
-    # Automatically handles background task - no need to call add_background_task()
-    client.start_streaming(capture_frame)
+    # Option 1: Simplest usage - uses default camera settings
+    # Camera is automatically set up with defaults (VGA, quality 60)
+    client.start_streaming()
+    
+    # Option 2: Configurable usage with camera_config
+    # client.start_streaming(
+    #     camera_config={
+    #         "framesize": sensor.VGA,  # 640x480
+    #         "quality": 65,            # JPEG quality 0-100
+    #         "skip_frames_time": 1500  # Stabilization time in ms
+    #     }
+    # )
+    
+    # Option 3: Custom setup function
+    # def setup_camera():
+    #     sensor.reset()
+    #     sensor.set_pixformat(sensor.JPEG)
+    #     sensor.set_framesize(sensor.VGA)
+    #     sensor.set_quality(65)
+    #     sensor.skip_frames(time=1500)
+    # client.start_streaming(camera_setup_func=setup_camera)
+    
+    # Option 4: Custom capture function (most control)
+    # def capture_frame():
+    #     img = sensor.snapshot()
+    #     return img.bytearray()
+    # client.start_streaming(capture_frame)
 
     print("✅ Streaming started. Press Ctrl+C to stop.")
     print("   Streaming and messaging are running together on the event loop.")
