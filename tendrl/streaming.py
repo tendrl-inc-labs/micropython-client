@@ -134,8 +134,8 @@ def _extract_hostname_from_url(url):
 MAX_FPS = 30
 
 def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
-                     yield_every_bytes=16*1024, yield_ms=1, target_fps=25,
-                     gc_interval=1024, reconnect_delay=5000, yield_interval=5,
+                     yield_every_bytes=8*1024, yield_ms=1, target_fps=25,
+                     gc_interval=250, reconnect_delay=5000, yield_interval=3,
                      debug=False):
 
     import socket
@@ -317,7 +317,10 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
 
                     frame_count += 1
 
-                    # Light GC occasionally (yield after to allow other tasks)
+                    # Explicit GC to prevent large automatic GC freezes
+                    # More frequent, smaller GCs reduce system-wide freeze duration
+                    # At 25 FPS: 250 frames = ~10 seconds (predictable, smaller GCs)
+                    # This works alongside client GC to keep memory pressure low
                     if gc_interval > 0 and (frame_count % gc_interval) == 0:
                         gc.collect()
                         await asyncio.sleep(0)  # Yield after GC to allow other tasks

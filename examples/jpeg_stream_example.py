@@ -10,7 +10,7 @@ def setup_camera():
     sensor.reset()
     sensor.set_pixformat(sensor.JPEG)
     sensor.set_framesize(sensor.VGA)
-    sensor.set_quality(75)
+    sensor.set_quality(65)
     sensor.skip_frames(time=1500)
 
 def capture_frame():

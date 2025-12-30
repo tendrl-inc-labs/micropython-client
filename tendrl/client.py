@@ -685,8 +685,8 @@ class Client:
         return wrapper
 
     def start_streaming(self, capture_frame_func, chunk_size=2048, 
-                       yield_every_bytes=16*1024, yield_ms=1, target_fps=25, 
-                       gc_interval=1024, reconnect_delay=5000, yield_interval=5, 
+                       yield_every_bytes=8*1024, yield_ms=1, target_fps=25, 
+                       gc_interval=250, reconnect_delay=5000, yield_interval=3, 
                        debug=None):
         """
         Start streaming JPEG frames to the server.
@@ -695,12 +695,12 @@ class Client:
         Args:
             capture_frame_func: Function that returns JPEG frame bytes (can be sync or async)
             chunk_size: Size of chunks to send (default: 2048)
-            yield_every_bytes: Yield to event loop after sending this many bytes (default: 16KB)
+            yield_every_bytes: Yield to event loop after sending this many bytes (default: 8KB)
             yield_ms: Milliseconds to sleep when yielding (default: 1)
             target_fps: Target frames per second (default: 25, maximum: 30)
-            gc_interval: Run garbage collection every N frames (default: 1024, 0 to disable)
+            gc_interval: Run garbage collection every N frames (default: 250, ~10s at 25 FPS - prevents large automatic GC freezes)
             reconnect_delay: Milliseconds to wait before reconnecting (default: 5000)
-            yield_interval: Yield to event loop every N frames (default: 5, 0 to disable)
+            yield_interval: Yield to event loop every N frames (default: 3, 0 to disable)
             debug: Enable debug logging (default: False)
         
         Raises:
