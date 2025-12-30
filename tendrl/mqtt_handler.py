@@ -36,6 +36,9 @@ class MQTTHandler:
         self._reconnect_delay = 5
         self.entity_info = None
         self.callback = callback
+        # Cache topics to avoid repeated string operations (performance optimization)
+        self._publish_topic = None
+        self._messages_topic = None
 
     def _fetch_entity_info(self):
         try:
@@ -55,6 +58,9 @@ class MQTTHandler:
                     'jti': cached_api_key_id,
                     'sub': cached_subject
                 }
+                # Invalidate cached topics when entity_info changes
+                self._publish_topic = None
+                self._messages_topic = None
                 return True
 
             if self.debug:
@@ -102,6 +108,9 @@ class MQTTHandler:
                         print(f"Error updating entity cache: {cache_err}")
 
                 self.entity_info = entity_info
+                # Invalidate cached topics when entity_info changes
+                self._publish_topic = None
+                self._messages_topic = None
                 return True
             else:
                 if self.debug:
@@ -116,6 +125,10 @@ class MQTTHandler:
 
     def _build_publish_topic(self):
         """Build the publish topic, which is always the same for all message types."""
+        # Return cached topic if available (performance optimization)
+        if self._publish_topic:
+            return self._publish_topic
+            
         if not self.entity_info:
             raise Exception('Entity info not available')
 
@@ -131,10 +144,16 @@ class MQTTHandler:
         if not jti:
             raise Exception('JTI not found in entity info')
 
-        return f"{account}/{region}/{jti}/publish"
+        # Cache the topic to avoid repeated string operations
+        self._publish_topic = f"{account}/{region}/{jti}/publish"
+        return self._publish_topic
 
     def _build_messages_topic(self):
         """Build the messages topic for subscribing to incoming messages."""
+        # Return cached topic if available (performance optimization)
+        if self._messages_topic:
+            return self._messages_topic
+            
         if not self.entity_info:
             raise Exception('Entity info not available')
 
@@ -150,7 +169,9 @@ class MQTTHandler:
         if not jti:
             raise Exception('JTI not found in entity info')
 
-        return f"{account}/{region}/{jti}/messages"
+        # Cache the topic to avoid repeated string operations
+        self._messages_topic = f"{account}/{region}/{jti}/messages"
+        return self._messages_topic
 
     def _validate_and_prepare_data(self, data):
         if data is None:
@@ -330,7 +351,9 @@ class MQTTHandler:
 
     def _on_message(self, topic, msg):
         try:
-            topic_str = topic.decode('utf-8')
+            # Only decode topic if debug is enabled (performance optimization)
+            if self.debug:
+                topic_str = topic.decode('utf-8')
             msg_str = msg.decode('utf-8')
 
             if self.debug:
@@ -395,23 +418,46 @@ class MQTTHandler:
             return False, True
 
     def _chunk_messages(self, messages):
+        """
+        Chunk messages into batches based on size limits.
+        Uses estimated size calculation to avoid expensive json.dumps() calls.
+        """
         chunks = []
         current_chunk = []
         current_size = 0
 
         for msg in messages:
-            msg_str = json.dumps(msg) if isinstance(msg, dict) else str(msg)
-            msg_size = len(msg_str.encode('utf-8'))
-
-            if (current_size + msg_size > self._max_batch_size or
+            # Estimate message size without expensive json.dumps() + encode()
+            # JSON overhead: ~50-100 bytes (keys, structure, quotes, etc.)
+            # For dicts: estimate based on content length (much faster than json.dumps)
+            if isinstance(msg, dict):
+                # Quick size estimate: sum of string lengths + JSON overhead
+                # This avoids expensive json.dumps() + encode() calls
+                estimated_size = 100  # Base JSON structure overhead
+                for k, v in msg.items():
+                    k_str = str(k)
+                    # Estimate value size without json.dumps() for nested structures
+                    if isinstance(v, (dict, list)):
+                        # Rough estimate for nested: count items * average size
+                        v_size = 50  # Conservative estimate for nested structures
+                    else:
+                        v_str = str(v)
+                        v_size = len(v_str)
+                    estimated_size += len(k_str) + v_size + 10  # Key + value + JSON overhead
+            else:
+                # For strings, estimate is just string length + JSON quotes
+                msg_str = str(msg)
+                estimated_size = len(msg_str) + 10  # String + JSON overhead
+            
+            if (current_size + estimated_size > self._max_batch_size or
                 len(current_chunk) >= self._max_messages_per_batch):
                 if current_chunk:
                     chunks.append(current_chunk)
                 current_chunk = [msg]
-                current_size = msg_size
+                current_size = estimated_size
             else:
                 current_chunk.append(msg)
-                current_size += msg_size
+                current_size += estimated_size
 
         if current_chunk:
             chunks.append(current_chunk)

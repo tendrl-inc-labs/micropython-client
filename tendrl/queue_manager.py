@@ -60,6 +60,9 @@ class QueueManager:
         self.max_batch_size = max_batch
         self.debug = debug
         self._processing = False
+        # Cache last calculated batch size to avoid repeated gc.mem_free() calls
+        self._last_batch_size = max_batch
+        self._last_mem_check_ticks = 0
 
     def __len__(self):
         return len(self.queue)
@@ -89,7 +92,15 @@ class QueueManager:
             return None
         self.is_processing = True
         try:
-            max_messages = min(round((gc.mem_free() / 1000) * 3), self.max_batch_size)
+            # Cache batch size calculation - only recalculate every 5 seconds
+            # (gc.mem_free() is relatively expensive, and memory doesn't change that fast)
+            import time
+            current_ticks = time.ticks_ms()
+            if (self._last_mem_check_ticks == 0 or 
+                time.ticks_diff(current_ticks, self._last_mem_check_ticks) >= 5000):
+                self._last_batch_size = min(round((gc.mem_free() / 1000) * 3), self.max_batch_size)
+                self._last_mem_check_ticks = current_ticks
+            max_messages = self._last_batch_size
             batch = []
             while len(self.queue) > 0 and len(batch) < max_messages:
                 msg = next(self.queue)

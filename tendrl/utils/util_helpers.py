@@ -2,14 +2,8 @@ def iso8601(timestamp=None):
     import time
     if timestamp is None:
         timestamp = time.gmtime()
-    return "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z".format(
-        timestamp[0],
-        timestamp[1],
-        timestamp[2],
-        timestamp[3],
-        timestamp[4],
-        timestamp[5],
-    )
+    # Use f-string instead of .format() for better performance in MicroPython
+    return f"{timestamp[0]:04d}-{timestamp[1]:02d}-{timestamp[2]:02d}T{timestamp[3]:02d}:{timestamp[4]:02d}:{timestamp[5]:02d}Z"
 
 def parse_iso8601(iso8601_str):
     import time
@@ -39,15 +33,15 @@ def make_message(
     else:
         if not all(isinstance(i, str) for i in tags):
             raise TypeError("tags must be of type 'str'")
-    context = {"tags": tags} if tags else {}
-    m = {
-        "msg_type": msg_type,
-        "data": data,
-        "context": context,
-        "dest": entity,
-        "timestamp": iso8601(timestamp if timestamp else time.gmtime()),
-    }
-    return {k: v for k, v in m.items() if v}
+    # Build message dict efficiently - only include non-empty values
+    # Avoid dict comprehension overhead by building conditionally
+    m = {"msg_type": msg_type, "data": data}
+    if tags:
+        m["context"] = {"tags": tags}
+    if entity:
+        m["dest"] = entity
+    m["timestamp"] = iso8601(timestamp if timestamp else time.gmtime())
+    return m
 
 def get_wifi_status(station):
     import network

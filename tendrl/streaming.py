@@ -88,13 +88,13 @@ def send_jpeg_frame(sock, jpeg_data, chunk_size=4096, yield_every_bytes=32*1024,
     send_all(sock, b"\r\n")
 
 async def send_jpeg_frame_async(sock, jpeg_data, chunk_size=4096, yield_every_bytes=32*1024, yield_ms=1):
-    header = (
-        f"--{BOUNDARY}\r\n"
-        "Content-Type: image/jpeg\r\n"
-        f"Content-Length: {len(jpeg_data)}\r\n"
-        "\r\n"
-    )
-    await send_all_async(sock, header.encode('utf-8'), yield_every_bytes, yield_ms)
+    # Optimize header building: only Content-Length changes, build efficiently
+    # Pre-encode static parts to avoid repeated string operations
+    header_prefix = f"--{BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ".encode('utf-8')
+    header_suffix = b"\r\n\r\n"
+    content_length_str = str(len(jpeg_data)).encode('utf-8')
+    header = header_prefix + content_length_str + header_suffix
+    await send_all_async(sock, header, yield_every_bytes, yield_ms)
     await send_bytes_chunked_async(sock, jpeg_data, chunk_size, yield_every_bytes, yield_ms)
     await send_all_async(sock, b"\r\n", yield_every_bytes, yield_ms)
 
@@ -177,6 +177,8 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
         # Convert duration to milliseconds for ticks_ms (more performant than time.time())
         duration_ms = int(stream_duration * 1000) if stream_duration > 0 else None
         start_time = time.ticks_ms() if duration_ms else None
+        # Cache frame delay in seconds to avoid repeated division (performance optimization)
+        frame_s = frame_ms / 1000.0 if frame_ms > 0 else 0.1
         while True:
             # Check if duration has elapsed (using ticks_ms for better performance)
             if duration_ms and start_time:
@@ -257,13 +259,10 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                     await asyncio.sleep(1.0)
                     continue  # Retry connection
 
-                # Build first frame multipart data
-                frame_header = (
-                    f"--{BOUNDARY}\r\n"
-                    "Content-Type: image/jpeg\r\n"
-                    f"Content-Length: {len(first_frame)}\r\n"
-                    "\r\n"
-                ).encode('utf-8')
+                # Build first frame multipart data (optimized: avoid repeated string operations)
+                frame_header_prefix = f"--{BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ".encode('utf-8')
+                frame_header_suffix = b"\r\n\r\n"
+                frame_header = frame_header_prefix + str(len(first_frame)).encode('utf-8') + frame_header_suffix
 
                 request_headers = create_stream_request(server_host, api_key)
 
@@ -297,7 +296,7 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                     except Exception as func_err:
                         if debug:
                             print(f"Error in capture function: {func_err}")
-                        await asyncio.sleep(frame_ms / 1000.0 if frame_ms > 0 else 0.1)
+                        await asyncio.sleep(frame_s)
                         continue
 
                     # Handle tuple return (jpeg_data, timestamp) or just jpeg_data
@@ -309,7 +308,7 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                     if not isinstance(jpeg_data, (bytes, bytearray)) or not jpeg_data or len(jpeg_data) == 0:
                         if debug:
                             print(f"Warning: Empty or invalid frame: {type(jpeg_data)}")
-                        await asyncio.sleep(frame_ms / 1000.0 if frame_ms > 0 else 0.1)
+                        await asyncio.sleep(frame_s)
                         continue
 
                     # Send frame (using async version for cooperative yielding)
@@ -352,9 +351,9 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                     # Frame pacing
                     if frame_ms > 0:
                         elapsed = time.ticks_diff(time.ticks_ms(), t0)
-                        delay = frame_ms - elapsed
-                        if delay > 0:
-                            await asyncio.sleep(delay / 1000.0)
+                        delay_ms = frame_ms - elapsed
+                        if delay_ms > 0:
+                            await asyncio.sleep(delay_ms / 1000.0)
                         else:
                             # Still yield even if we're behind schedule
                             await asyncio.sleep(0)
@@ -385,7 +384,8 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                 s = None
 
             if debug:
-                print("Reconnecting in {} seconds...".format(reconnect_delay / 1000.0))
+                reconnect_s = reconnect_delay / 1000.0
+                print(f"Reconnecting in {reconnect_s} seconds...")
 
             # Wait before reconnecting
             await asyncio.sleep(reconnect_delay / 1000.0)

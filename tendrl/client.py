@@ -101,11 +101,17 @@ class Client:
         self._last_process_time = 0
         self._last_connect = 0
         self._last_cleanup = 0
+        # Use ticks_ms for relative timing (more performant than time.time())
+        self._last_heartbeat_ticks = 0
+        self._last_msg_check_ticks = 0
+        self._last_connect_ticks = 0
+        self._last_cleanup_ticks = 0
         self._proc = False
         self._ntp_synced = False
-        self._e_type = f"mp:{self.config['tendrl_version']}:" + ".".join(
-            [str(i) for i in sys.implementation.version[:-1]]
-        )
+        # Optimize version string building - avoid list comprehension overhead
+        version_parts = sys.implementation.version[:-1]
+        version_str = ".".join(str(i) for i in version_parts)
+        self._e_type = f"mp:{self.config['tendrl_version']}:{version_str}"
         if callback and not callable(callback):
             raise TypeError("callback must be a function accepting dict")
         self._app_timer = None
@@ -269,6 +275,8 @@ class Client:
                 print(f"Connection error: {e}")
             return False
         finally:
+            # Update both ticks (for relative timing) and time (for absolute timestamps if needed)
+            self._last_connect_ticks = time.ticks_ms()
             self._last_connect = time.time()
 
     def _store_offline_message(self, message, db_ttl=86400):
@@ -299,9 +307,13 @@ class Client:
     async def _cleanup_offline_messages(self):
         if not self.storage:
             return
-        current_time = time.time()
-        if (current_time - self._last_cleanup) >= 60:
+        # Use ticks_ms for relative timing check (more performant)
+        current_ticks = time.ticks_ms()
+        if self._last_cleanup_ticks == 0 or time.ticks_diff(current_ticks, self._last_cleanup_ticks) >= 60000:
             try:
+                self._last_cleanup_ticks = current_ticks
+                # Still use time.time() for absolute timestamp if needed
+                self._last_cleanup = time.time()
                 async with self.storage as store:
                     cleanup_result = store.cleanup()
                     if self.debug and cleanup_result > 0:
@@ -325,29 +337,36 @@ class Client:
         self._proc = True
         did_work = False
         try:
-            current_time = time.time()
-
-            if self.send_heartbeat and (current_time - self._last_heartbeat) >= 30:
-                try:
-                    self._last_heartbeat = current_time
-                    msg = make_message(free(bytes_only=True), "heartbeat")
-                    success, is_connection_error = self.mqtt.publish_message(msg)
-                    if not success and is_connection_error:
-                        if self.debug:
-                            print("Heartbeat connection error - disabling client")
+            # Use ticks_ms for relative timing checks (more performant)
+            current_ticks = time.ticks_ms()
+            
+            # Heartbeat check (30 seconds = 30000ms)
+            if self.send_heartbeat:
+                if self._last_heartbeat_ticks == 0 or time.ticks_diff(current_ticks, self._last_heartbeat_ticks) >= 30000:
+                    try:
+                        self._last_heartbeat_ticks = current_ticks
+                        # Still use time.time() for absolute timestamp in message
+                        self._last_heartbeat = time.time()
+                        msg = make_message(free(bytes_only=True), "heartbeat")
+                        success, is_connection_error = self.mqtt.publish_message(msg)
+                        if not success and is_connection_error:
+                            if self.debug:
+                                print("Heartbeat connection error - disabling client")
+                            self.client_enabled, self.mqtt.connected = False, False
+                        elif not success:
+                            if self.debug:
+                                print("Heartbeat validation error - client remains enabled")
+                        did_work = True
+                    except Exception:
                         self.client_enabled, self.mqtt.connected = False, False
-                    elif not success:
-                        if self.debug:
-                            print("Heartbeat validation error - client remains enabled")
-                    did_work = True
-                except Exception:
-                    self.client_enabled, self.mqtt.connected = False, False
-                    return
+                        return
 
             if not self.client_enabled:
-                if (current_time - self._last_connect) >= 30:
+                # Connection retry check (30 seconds = 30000ms)
+                if self._last_connect_ticks == 0 or time.ticks_diff(current_ticks, self._last_connect_ticks) >= 30000:
                     if self._connect():
                         did_work = True
+                        self._last_connect_ticks = current_ticks
                     else:
                         self.client_enabled = False
                 else:
@@ -379,9 +398,13 @@ class Client:
                     print(f"Queue processing error: {queue_err}")
                 return
 
-            if current_time - self._last_msg_check >= self.check_msg_rate:
+            # Message check (check_msg_rate seconds, convert to ms)
+            check_msg_rate_ms = self.check_msg_rate * 1000
+            if self._last_msg_check_ticks == 0 or time.ticks_diff(current_ticks, self._last_msg_check_ticks) >= check_msg_rate_ms:
                 try:
-                    self._last_msg_check = current_time
+                    self._last_msg_check_ticks = current_ticks
+                    # Still use time.time() for absolute timestamp if needed
+                    self._last_msg_check = time.time()
                     # check_messages() processes messages via callback, returns True on success
                     success = self.mqtt.check_messages()
                     if success:
@@ -394,10 +417,13 @@ class Client:
                         print(f"Check messages error: {check_msg_err}")
                     self.client_enabled, self.mqtt.connected = False, False
 
-            if current_time - self._last_cleanup >= 60:
+            # Cleanup check (60 seconds = 60000ms)
+            if self._last_cleanup_ticks == 0 or time.ticks_diff(current_ticks, self._last_cleanup_ticks) >= 60000:
                 if self.storage or self._client_db:
                     self._sync_cleanup_offline_messages()
-                self._last_cleanup = current_time
+                self._last_cleanup_ticks = current_ticks
+                # Still use time.time() for absolute timestamp if needed
+                self._last_cleanup = time.time()
                 did_work = True
 
             if self._process_offline_queue() > 0:
@@ -502,10 +528,13 @@ class Client:
                 self.client_enabled, self.mqtt.connected = False, False
 
     async def _send_heartbeat(self):
-        current_time = time.time()
-        if (current_time - self._last_heartbeat) >= 30:
+        # Use ticks_ms for relative timing check (more performant)
+        current_ticks = time.ticks_ms()
+        if self._last_heartbeat_ticks == 0 or time.ticks_diff(current_ticks, self._last_heartbeat_ticks) >= 30000:
             try:
-                self._last_heartbeat = current_time
+                self._last_heartbeat_ticks = current_ticks
+                # Still use time.time() for absolute timestamp in message
+                self._last_heartbeat = time.time()
                 msg = make_message(free(bytes_only=True), "heartbeat")
                 success, is_connection_error = self.mqtt.publish_message(msg)
 
@@ -522,10 +551,14 @@ class Client:
                 self.client_enabled, self.mqtt.connected = False, False
 
     async def _check_messages(self):
-        current_time = time.time()
-        if (current_time - self._last_msg_check) >= self.check_msg_rate:
+        # Use ticks_ms for relative timing check (more performant)
+        current_ticks = time.ticks_ms()
+        check_msg_rate_ms = self.check_msg_rate * 1000
+        if self._last_msg_check_ticks == 0 or time.ticks_diff(current_ticks, self._last_msg_check_ticks) >= check_msg_rate_ms:
             try:
-                self._last_msg_check = current_time
+                self._last_msg_check_ticks = current_ticks
+                # Still use time.time() for absolute timestamp if needed
+                self._last_msg_check = time.time()
                 # check_messages() processes messages via callback, returns True on success
                 success = self.mqtt.check_messages()
                 if not success:
@@ -544,15 +577,18 @@ class Client:
                     await asyncio.sleep(0.1)
                     continue
                 self._proc = True
-                current_time = time.time()
+                # Use ticks_ms for relative timing checks (more performant)
+                current_ticks = time.ticks_ms()
 
                 if not self.client_enabled:
-                    if (current_time - self._last_connect) >= 30:
+                    # Connection retry check (30 seconds = 30000ms)
+                    if self._last_connect_ticks == 0 or time.ticks_diff(current_ticks, self._last_connect_ticks) >= 30000:
                         try:
                             if await self._async_connect():
                                 if self.debug:
                                     print("Connection successfully established")
                                 did_work = True
+                                self._last_connect_ticks = current_ticks
                             else:
                                 self.client_enabled = False
                         except Exception as connect_err:
@@ -565,13 +601,15 @@ class Client:
                 await self._process_queue()
                 did_work = True
 
-                if self.send_heartbeat and (current_time - self._last_heartbeat) >= 30:
-                    try:
-                        await self._send_heartbeat()
-                        did_work = True
-                    except Exception:
-                        self.client_enabled, self.mqtt.connected = False, False
-                        return
+                # Heartbeat check (30 seconds = 30000ms)
+                if self.send_heartbeat:
+                    if self._last_heartbeat_ticks == 0 or time.ticks_diff(current_ticks, self._last_heartbeat_ticks) >= 30000:
+                        try:
+                            await self._send_heartbeat()
+                            did_work = True
+                        except Exception:
+                            self.client_enabled, self.mqtt.connected = False, False
+                            return
 
                 await self._check_messages()
                 did_work = True
