@@ -9,7 +9,7 @@ def setup_camera():
     """Configure camera settings"""
     sensor.reset()
     sensor.set_pixformat(sensor.JPEG)
-    sensor.set_framesize(sensor.QVGA)  # 320x240
+    sensor.set_framesize(sensor.VGA)
     sensor.set_quality(75)
     sensor.skip_frames(time=1500)
 

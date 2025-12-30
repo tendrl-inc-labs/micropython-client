@@ -28,8 +28,8 @@ def setup_camera():
     try:
         sensor.reset()
         sensor.set_pixformat(sensor.JPEG)
-        sensor.set_framesize(sensor.QVGA)  # 320x240
-        sensor.set_quality(45)
+        sensor.set_framesize(sensor.VGA)
+        sensor.set_quality(75)
         sensor.skip_frames(time=1500)
         print("✅ Camera initialized")
         return True
@@ -45,12 +45,6 @@ def capture_frame():
 
     img = sensor.snapshot()
     return img.bytearray()
-
-async def capture_frame_async():
-    """Capture a frame asynchronously (if your camera supports it)"""
-    # If your capture function needs async operations, use this pattern
-    await asyncio.sleep(0)  # Yield to event loop
-    return capture_frame()
 
 async def main():
     """
