@@ -80,7 +80,11 @@ class MQTTHandler:
                 'Content-Type': 'application/json'
             }
 
+            # Include client version in query parameter if available
+            client_version = self.config.get('client_version', '')
             url = f'{api_base_url}/api/claims'
+            if client_version:
+                url = f'{url}?e_type={client_version}'
             if self.debug:
                 print(f"Fetching entity info from: {url}")
 

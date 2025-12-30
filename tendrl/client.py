@@ -51,7 +51,7 @@ class Client:
         if not BTREE_AVAILABLE:
             if client_db or offline_storage:
                 if debug:
-                    print("⚠️ MicroTetherDB not available - disabling database features")
+                    print("MicroTetherDB not available - disabling database features")
                     print("   Install full package for database support")
             client_db = False
             offline_storage = False
@@ -108,10 +108,11 @@ class Client:
         self._last_cleanup_ticks = 0
         self._proc = False
         self._ntp_synced = False
-        # Optimize version string building - avoid list comprehension overhead
-        version_parts = sys.implementation.version[:-1]
-        version_str = ".".join(str(i) for i in version_parts)
-        self._e_type = f"mp:{self.config['tendrl_version']}:{version_str}"
+        # Build client version string in format: tendrl-micropython/{version}
+        # Store in both instance variable and config for access by handlers
+        client_version = f"tendrl-micropython/{self.config['tendrl_version']}"
+        self._e_type = client_version
+        self.config['client_version'] = client_version  # Make available to handlers
         if callback and not callable(callback):
             raise TypeError("callback must be a function accepting dict")
         self._app_timer = None
@@ -339,7 +340,7 @@ class Client:
         try:
             # Use ticks_ms for relative timing checks (more performant)
             current_ticks = time.ticks_ms()
-            
+
             # Heartbeat check (30 seconds = 30000ms)
             if self.send_heartbeat:
                 if self._last_heartbeat_ticks == 0 or time.ticks_diff(current_ticks, self._last_heartbeat_ticks) >= 30000:
@@ -446,19 +447,19 @@ class Client:
         """Update timestamps for all queued messages after NTP sync"""
         import time
         from .utils.util_helpers import iso8601
-        
+
         if not self.managed:
             return
-        
+
         updated_count = 0
         current_timestamp = iso8601(time.gmtime())
-        
+
         # Update timestamps in main queue
         if self.queue and len(self.queue) > 0:
             # Extract all messages, update timestamps, and re-queue
             queue_size = len(self.queue)
             temp_messages = []
-            
+
             # Extract all messages from queue using get()
             for _ in range(queue_size):
                 msg = self.queue.queue.get()
@@ -469,7 +470,7 @@ class Client:
                     msg["timestamp"] = current_timestamp
                     updated_count += 1
                 temp_messages.append(msg)
-            
+
             # Re-queue messages with updated timestamps
             for msg in temp_messages:
                 try:
@@ -477,12 +478,12 @@ class Client:
                 except Exception:
                     if self.debug:
                         print("Warning: Could not re-queue message after timestamp update")
-        
+
         # Update timestamps in offline queue
         if self._offline_queue and len(self._offline_queue) > 0:
             queue_size = len(self._offline_queue)
             temp_messages = []
-            
+
             # Extract all messages from offline queue using get()
             for _ in range(queue_size):
                 msg = self._offline_queue.queue.get()
@@ -493,7 +494,7 @@ class Client:
                     msg["timestamp"] = current_timestamp
                     updated_count += 1
                 temp_messages.append(msg)
-            
+
             # Re-queue messages with updated timestamps
             for msg in temp_messages:
                 try:
@@ -501,7 +502,7 @@ class Client:
                 except Exception:
                     if self.debug:
                         print("Warning: Could not re-queue offline message after timestamp update")
-        
+
         if self.debug and updated_count > 0:
             print(f"Updated timestamps for {updated_count} queued messages after NTP sync")
 
@@ -653,15 +654,15 @@ class Client:
                 task = asyncio.create_task(coro)
             self._tasks.append(task)
             if self.debug:
-                print(f"✅ Background task created: {type(coro).__name__}")
+                print(f"Background task created: {type(coro).__name__}")
             return task
         except RuntimeError as e:
             if self.debug:
-                print(f"❌ Error creating background task: {e}")
+                print(f"Error creating background task: {e}")
             return None
         except Exception as e:
             if self.debug:
-                print(f"❌ Unexpected error creating background task: {e}")
+                print(f"Unexpected error creating background task: {e}")
             return None
 
     def tether(self, write_offline=False, db_ttl=None, tags=None, entity=""):
@@ -723,75 +724,12 @@ class Client:
             return async_wrapped_function if is_async else sync_wrapped_function
         return wrapper
 
-    def start_streaming(self, capture_frame_func=None, chunk_size=2048, 
-                       yield_every_bytes=8*1024, yield_ms=1, target_fps=25, 
-                       gc_interval=250, reconnect_delay=5000, yield_interval=3, 
-                       camera_config=None, camera_setup_func=None, 
+    def start_streaming(self, capture_frame_func=None, chunk_size=2048,
+                       yield_every_bytes=8*1024, yield_ms=1, target_fps=25,
+                       gc_interval=250, reconnect_delay=1000, yield_interval=3,
+                       camera_config=None, camera_setup_func=None,
                        stream_duration=-1, debug=None):
-        """
-        Start streaming JPEG frames to the server.
-        Automatically adds the streaming task to the background task queue.
-        
-        Args:
-            capture_frame_func: Function that returns JPEG frame bytes (can be sync or async).
-                                If None and sensor module is available, uses default capture function.
-            camera_config: Optional dict with camera settings. Keys:
-                          - framesize: Sensor frame size (e.g., sensor.VGA, sensor.QVGA)
-                          - quality: JPEG quality 0-100 (default: 60)
-                          - pixformat: Pixel format (default: sensor.JPEG)
-                          - skip_frames_time: Time to skip frames for stabilization in ms (default: 1500)
-            camera_setup_func: Optional function to call for camera setup. If provided, 
-                              this is called instead of using camera_config. If None and 
-                              camera_config is provided, camera is set up automatically.
-            stream_duration: Duration in seconds to stream before auto-stopping.
-                            If -1 (default), streams indefinitely until stop_streaming() is called.
-                            If > 0, streams for that many seconds then auto-stops.
-            chunk_size: Size of chunks to send (default: 2048)
-            yield_every_bytes: Yield to event loop after sending this many bytes (default: 8KB)
-            yield_ms: Milliseconds to sleep when yielding (default: 1)
-            target_fps: Target frames per second (default: 25, maximum: 30)
-            gc_interval: Run garbage collection every N frames (default: 250, ~10s at 25 FPS - prevents large automatic GC freezes)
-            reconnect_delay: Milliseconds to wait before reconnecting (default: 5000)
-            yield_interval: Yield to event loop every N frames (default: 3, 0 to disable)
-            debug: Enable debug logging (default: False)
-        
-        Raises:
-            ValueError: If target_fps exceeds 30 or is <= 0
-            ImportError: If sensor module is not available and capture_frame_func is None
-        
-        Note:
-            The server enforces a maximum of 30 FPS. If target_fps exceeds 30,
-            a ValueError will be raised.
-        
-        Returns:
-            The background task (if async mode) or None (if sync mode)
-        
-        Examples:
-            # Simple usage with default camera (OpenMV) - streams forever
-            client.start_streaming()  # stream_duration=-1 by default (forever)
-            
-            # Stream for 30 seconds then auto-stop
-            client.start_streaming(stream_duration=30)
-            
-            # Configurable camera settings
-            client.start_streaming(
-                camera_config={"framesize": sensor.VGA, "quality": 60}
-            )
-            
-            # Motion detection example
-            # if detect_motion():
-            #     client.start_streaming(stream_duration=60)  # Stream for 1 minute
-            
-            # Stop streaming manually
-            # if client.is_streaming():
-            #     client.stop_streaming()
-            
-            # Custom capture function
-            # def capture_frame():
-            #     img = sensor.snapshot()
-            #     return img.bytearray()
-            # client.start_streaming(capture_frame, target_fps=25)
-        """
+
         try:
             from .streaming import start_jpeg_stream
         except ImportError:
@@ -809,15 +747,15 @@ class Client:
             # Try to use default camera capture if sensor module is available
             try:
                 import sensor
-                
+
                 # Setup camera if config or setup function provided
                 if camera_setup_func:
                     if stream_debug:
-                        print("📹 Setting up camera with custom setup function...")
+                        print("Setting up camera with custom setup function...")
                     camera_setup_func()
                 elif camera_config:
                     if stream_debug:
-                        print(f"📹 Setting up camera with config: {camera_config}")
+                        print(f"Setting up camera with config: {camera_config}")
                     sensor.reset()
                     sensor.set_pixformat(camera_config.get("pixformat", sensor.JPEG))
                     sensor.set_framesize(camera_config.get("framesize", sensor.VGA))
@@ -827,30 +765,51 @@ class Client:
                 else:
                     # Default camera setup if no config provided
                     if stream_debug:
-                        print("📹 Setting up camera with default settings...")
+                        print("Setting up camera with default settings...")
                     sensor.reset()
                     sensor.set_pixformat(sensor.JPEG)
                     sensor.set_framesize(sensor.VGA)
                     sensor.set_quality(60)
                     sensor.skip_frames(time=1500)
-                
+
                 # Create default capture function
                 def default_capture_frame():
                     img = sensor.snapshot()
                     return img.bytearray()
-                
+
                 capture_frame_func = default_capture_frame
                 if stream_debug:
-                    print("✅ Using default camera capture function")
-                    
+                    print("Using default camera capture function")
+  
             except ImportError:
                 raise ImportError(
                     "Camera capture function required. Either provide capture_frame_func, "
                     "or ensure sensor module is available for default camera support."
                 )
-        
+
+        # Ensure client is started and MQTT is connected before streaming
+        # This is required for online entity status that is set when MQTT connects
+        if not self.client_enabled:
+            if stream_debug:
+                print("Client not started - attempting to start and connect...")
+            # Try to connect if not already connected
+            if self.mode == "async":
+                # In async mode, we need to ensure connection is established
+                # Check if we need to wait for connection
+                if not self.mqtt or not self.mqtt.connected:
+                    if stream_debug:
+                        print("MQTT not connected - will wait for connection in stream loop")
+            else:
+                # In sync mode, try to connect now
+                if not self._connect():
+                    if stream_debug:
+                        print("Failed to connect - streaming will retry in stream loop")
+        elif self.mqtt and not self.mqtt.connected:
+            if stream_debug:
+                print("MQTT not connected - will wait for connection in stream loop")
+
         if stream_debug:
-            print(f"📹 Starting streaming with FPS={target_fps}, chunk_size={chunk_size}")
+            print(f"Starting streaming with FPS={target_fps}, chunk_size={chunk_size}")
 
         stream_loop_func = start_jpeg_stream(
             self,
@@ -874,13 +833,13 @@ class Client:
                 if stream_debug:
                     if task:
                         duration_msg = f" for {stream_duration}s" if stream_duration > 0 else " (indefinite)"
-                        print(f"✅ Streaming task created and added to background tasks{duration_msg}")
+                        print(f"Streaming task created and added to background tasks{duration_msg}")
                     else:
-                        print("⚠️ Streaming task creation failed - check event loop")
+                        print("Streaming task creation failed - check event loop")
                 return task
             except Exception as e:
                 if stream_debug:
-                    print(f"❌ Error calling stream_loop_func() or creating task: {e}")
+                    print(f"Error calling stream_loop_func() or creating task: {e}")
                     try:
                         import sys
                         sys.print_exception(e)
@@ -895,22 +854,16 @@ class Client:
             return None
 
     def stop_streaming(self):
-        """
-        Stop the currently running streaming task.
-        
-        Returns:
-            bool: True if streaming was stopped, False if no streaming task was running
-        """
         if self._streaming_task is None:
             if self.debug:
-                print("⚠️ No streaming task to stop")
+                print("No streaming task to stop")
             return False
-        
+
         try:
             if hasattr(self._streaming_task, "done") and not self._streaming_task.done():
                 self._streaming_task.cancel()
                 if self.debug:
-                    print("🛑 Streaming task cancelled")
+                    print("Streaming task cancelled")
             # Remove from tasks list if it's there
             if self._streaming_task in self._tasks:
                 self._tasks.remove(self._streaming_task)
@@ -921,14 +874,8 @@ class Client:
                 print(f"Error stopping streaming: {e}")
             self._streaming_task = None
             return False
-    
+
     def is_streaming(self):
-        """
-        Check if streaming is currently active.
-        
-        Returns:
-            bool: True if streaming task is running, False otherwise
-        """
         if self._streaming_task is None:
             return False
         if hasattr(self._streaming_task, "done"):
@@ -964,7 +911,7 @@ class Client:
                 message = make_message(
                     data, "publish", tags=tags, entity=entity
                 )
-                
+
                 if not self.queue.put(message):
                     if self.debug:
                         print("Failed to queue message - queue full")
@@ -1207,7 +1154,7 @@ class Client:
                 if not self._ntp_synced:
                     self._ntp_synced = True
                     self._update_queued_timestamps()
-                
+
                 if self.mqtt.connect():
                     self.client_enabled = True
                     gc.collect()

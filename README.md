@@ -774,7 +774,7 @@ stream_task = client.start_streaming(
     yield_ms=1,                    # Milliseconds to sleep when yielding (default: 1)
     target_fps=25,                 # Target frames per second (default: 25, max: 30)
     gc_interval=250,               # Run GC every N frames (default: 250, ~10s at 25 FPS)
-    reconnect_delay=5000,          # Reconnect delay in ms (default: 5000)
+    reconnect_delay=1000,          # Reconnect delay in ms (default: 1000, 1 second for faster recovery)
     yield_interval=3,              # Yield every N frames (default: 3)
     camera_config=None,            # Camera configuration dict (optional)
     camera_setup_func=None,        # Custom camera setup function (optional)
@@ -795,7 +795,7 @@ stream_task = client.start_streaming(
 | `yield_ms` | `int` | `1` | Milliseconds to sleep when yielding |
 | `target_fps` | `int` | `25` | Target frames per second (maximum: 30, enforced by server) |
 | `gc_interval` | `int` | `250` | Run garbage collection every N frames (~10 seconds at 25 FPS) |
-| `reconnect_delay` | `int` | `5000` | Milliseconds to wait before reconnecting on error |
+| `reconnect_delay` | `int` | `1000` | Milliseconds to wait before reconnecting on error (default: 1 second for faster recovery) |
 | `yield_interval` | `int` | `3` | Yield to event loop every N frames (0 to disable) |
 | `stream_duration` | `int` | `-1` | Duration in seconds. `-1` = stream indefinitely until stopped |
 | `debug` | `bool` | `None` | Enable debug output (defaults to `client.debug` if `None`) |
