@@ -684,9 +684,9 @@ class Client:
             return async_wrapped_function if is_async else sync_wrapped_function
         return wrapper
 
-    def start_streaming(self, capture_frame_func, chunk_size=4096, 
-                       yield_every_bytes=32*1024, yield_ms=1, target_fps=25, 
-                       gc_interval=1024, reconnect_delay=5000, yield_interval=10, 
+    def start_streaming(self, capture_frame_func, chunk_size=2048, 
+                       yield_every_bytes=16*1024, yield_ms=1, target_fps=25, 
+                       gc_interval=1024, reconnect_delay=5000, yield_interval=5, 
                        debug=None):
         """
         Start streaming JPEG frames to the server.
@@ -694,13 +694,13 @@ class Client:
         
         Args:
             capture_frame_func: Function that returns JPEG frame bytes (can be sync or async)
-            chunk_size: Size of chunks to send (default: 4096)
-            yield_every_bytes: Yield to event loop after sending this many bytes (default: 32KB)
+            chunk_size: Size of chunks to send (default: 2048)
+            yield_every_bytes: Yield to event loop after sending this many bytes (default: 16KB)
             yield_ms: Milliseconds to sleep when yielding (default: 1)
             target_fps: Target frames per second (default: 25, maximum: 30)
             gc_interval: Run garbage collection every N frames (default: 1024, 0 to disable)
             reconnect_delay: Milliseconds to wait before reconnecting (default: 5000)
-            yield_interval: Yield to event loop every N frames (default: 10, 0 to disable)
+            yield_interval: Yield to event loop every N frames (default: 5, 0 to disable)
             debug: Enable debug logging (default: False)
         
         Raises:
@@ -733,10 +733,10 @@ class Client:
 
         # Use self.debug if debug not explicitly provided (None means use self.debug)
         stream_debug = self.debug if debug is None else debug
-        
+
         if stream_debug:
             print(f"📹 Starting streaming with FPS={target_fps}, chunk_size={chunk_size}")
-        
+
         stream_loop_func = start_jpeg_stream(
             self,
             capture_frame_func,

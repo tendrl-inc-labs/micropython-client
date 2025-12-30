@@ -133,9 +133,9 @@ def _extract_hostname_from_url(url):
 # Maximum FPS supported by the streaming server
 MAX_FPS = 30
 
-def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=4096,
-                     yield_every_bytes=32*1024, yield_ms=1, target_fps=25,
-                     gc_interval=1024, reconnect_delay=5000, yield_interval=10,
+def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
+                     yield_every_bytes=16*1024, yield_ms=1, target_fps=25,
+                     gc_interval=1024, reconnect_delay=5000, yield_interval=5,
                      debug=False):
 
     import socket

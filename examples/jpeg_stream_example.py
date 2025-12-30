@@ -10,19 +10,12 @@ def setup_camera():
     sensor.reset()
     sensor.set_pixformat(sensor.JPEG)
     sensor.set_framesize(sensor.QVGA)  # 320x240
-    sensor.set_quality(45)
+    sensor.set_quality(75)
     sensor.skip_frames(time=1500)
 
 def capture_frame():
     """Capture a frame and return JPEG bytes"""
     img = sensor.snapshot()
-    return img.bytearray()
-
-def capture_frame_fast():
-    """Capture frame optimized for speed (lower quality, higher FPS)"""
-    img = sensor.snapshot()
-    # Lower quality for faster encoding
-    img.compress(quality=30)
     return img.bytearray()
 
 async def main():
@@ -63,4 +56,3 @@ async def main():
 if __name__ == "__main__":
     # Run the async main function
     asyncio.run(main())
-

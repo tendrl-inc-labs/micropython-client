@@ -93,8 +93,8 @@ async def main():
         stream_task = client.start_streaming(
             capture_frame,              # Capture function (can be sync or async)
             target_fps=25,              # Target 25 FPS
-            chunk_size=4096,            # 4KB chunks
-            yield_every_bytes=32*1024,  # Yield every 32KB
+            chunk_size=2048,            # 2KB chunks (optimized for fewer drops)
+            yield_every_bytes=16*1024,  # Yield every 16KB (optimized for fewer drops)
             yield_ms=1,                 # 1ms yield delay
             debug=True                  # Enable streaming debug
         )
