@@ -13,8 +13,8 @@ MAX_INSTALL_RETRIES = 3
 WIFI_RETRY_DELAY = 5
 INSTALL_RETRY_DELAY = 10
 
-INSTALL_DB = True
-INSTALL_STREAMING = False  # Set to True to include JPEG streaming support
+INSTALL_DB = True  # Set to False for minimal installation (no database)
+INSTALL_STREAMING = False  # Set to True to include JPEG streaming support (adds ~35KB flash)
 
 if INSTALL_DB:
     print("🗃️ Installing full Tendrl SDK with MicroTetherDB")
@@ -290,9 +290,10 @@ def main():
             print("💡 This saves ~50KB flash space but disables local database features")
         if INCLUDE_STREAMING:
             print("📹 JPEG streaming module installed")
-            print("💡 Use client.jpeg_stream() decorator for camera streaming")
+            print("💡 Use client.start_streaming() for camera streaming")
         else:
             print("💡 To enable JPEG streaming, set INSTALL_STREAMING=True in install_script.py")
+            print("   Streaming adds ~35KB flash storage and works with both minimal and full installations")
         print("⚠️ If you haven't already, please edit /config.json with your API key")
     except Exception as e:
         print(f"❌ Unexpected error: {e}")

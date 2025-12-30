@@ -3,12 +3,13 @@
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/tendrl-inc/clients/nano_agent)
 ![MicroPython](https://img.shields.io/badge/MicroPython-1.19%2B-blue) ![License](https://img.shields.io/badge/License-Proprietary-red)
 
-A resource-optimized SDK for IoT and embedded devices, featuring a minimal memory footprint and hardware-specific optimizations.
+A resource-efficient SDK for IoT and embedded devices, featuring a minimal memory footprint and hardware-specific features.
 
 ## Key Features
 
-- **Minimal Memory Footprint**: Optimized for devices with limited RAM
+- **Minimal Memory Footprint**: Designed for devices with limited RAM
 - **MQTT Communication**: Reliable protocol with QoS 1 delivery for IoT devices
+- **JPEG Video Streaming**: Real-time video streaming with cooperative multitasking
 - **Automatic Entity Discovery**: Fetches entity info from API using API key
 - **Simple Callback System**: Easy message handling with user-defined callbacks
 - **Configuration via JSON**: Uses config.json for device configuration
@@ -38,7 +39,8 @@ Before installing the Tendrl SDK, you need to have MicroPython installed on your
 
 **Memory Requirements:**
 - **Minimum RAM:** 150 KB total (125 KB absolute minimum)
-- **Client Runtime:** ~57 KB steady state
+- **Client Runtime:** ~57 KB steady state (without streaming active)
+- **Streaming Runtime:** Additional ~20-40 KB when streaming (for JPEG buffers and socket buffers)
 - **Flash Storage:** ~100 KB (minimal package) or ~172 KB (full package with database)
 
 ## Installation
@@ -52,11 +54,13 @@ The Tendrl SDK offers two installation options to suit different device constrai
 | **Client & Networking** | ✅ | ✅ |
 | **Message Publishing** | ✅ | ✅ |
 | **MQTT Communication** | ✅ | ✅ |
+| **JPEG Video Streaming** | ⚠️ Optional | ⚠️ Optional |
 | **Client Database** | ✅ | ❌ |
 | **Offline Storage** | ✅ | ❌ |
 | **TTL Management** | ✅ | ❌ |
 | **Rich Queries** | ✅ | ❌ |
 | **Flash Storage** | ~172KB | ~100KB |
+| **Flash Storage (with streaming)** | ~207KB | ~135KB |
 
  &nbsp;
 
@@ -75,6 +79,13 @@ The Tendrl SDK offers two installation options to suit different device constrai
 - Simple networking without persistence
 - Maximum memory efficiency
 
+**JPEG Streaming (Optional for both installations):**
+
+- Streaming requires a separate installation step
+- Works with both minimal and full installations
+- Adds ~35KB to flash storage
+- See installation instructions below
+
 ### Option 1: Using the Install Script (Recommended)
 
 **Step 1**: Download the install script from our GitHub repository:
@@ -90,6 +101,10 @@ The Tendrl SDK offers two installation options to suit different device constrai
 INSTALL_DB = True   # Full installation with MicroTetherDB (Default)
 # OR
 INSTALL_DB = False  # Minimal installation without database
+
+INSTALL_STREAMING = True   # Set to True to include JPEG streaming support (optional)
+# OR
+INSTALL_STREAMING = False  # Default: No streaming (saves ~35KB flash)
 ```
 
 **Step 3**: Run the script on your device:
@@ -125,6 +140,28 @@ The script will automatically:
 1. Download the SDK from [GitHub](https://github.com/tendrl-inc-labs/micropython-client)
 2. Copy the `tendrl/` directory to your device's `/lib` directory
 3. Create or update the `config.json` file in your device's root directory
+
+### Installing JPEG Streaming (Optional)
+
+Streaming is **not included by default** in either minimal or full installations. To add streaming support:
+
+**Using the Install Script:**
+```python
+# In install_script.py, set:
+INSTALL_STREAMING = True
+```
+
+**Using mip (Manual):**
+```python
+import mip
+# Install streaming module separately
+mip.install("github:tendrl-inc-labs/micropython-client/package-streaming.json", target="/lib")
+```
+
+**Manual Installation:**
+- Copy `tendrl/streaming.py` to `/lib/tendrl/streaming.py` on your device
+
+**Note:** Streaming adds ~35KB to flash storage and works with both minimal and full installations.
 
 ### Client Configuration by Installation Type
 
@@ -200,6 +237,8 @@ Create a `config.json` file in your device's root directory:
 
 ## Quick Start
 
+### Basic Messaging
+
 ```python
 from tendrl import Client
 
@@ -220,6 +259,28 @@ def read_sensors():
 
 # Call your function - data is automatically collected and sent
 read_sensors()  # Data is automatically queued and sent
+```
+
+### Streaming (Requires Async Mode)
+
+```python
+import asyncio
+from tendrl import Client
+
+async def main():
+    # Initialize in async mode (REQUIRED for streaming)
+    client = Client(mode="async", debug=True)
+    client.start()
+    await asyncio.sleep(2)
+    
+    # Start streaming - simplest usage (default camera settings)
+    client.start_streaming()
+    
+    # Keep running
+    await asyncio.sleep(60)
+    await client.async_stop()
+
+asyncio.run(main())
 ```
 
 ## Client Initialization
@@ -243,8 +304,11 @@ The SDK provides several initialization options:
 | `offline_storage` | `bool` | `True` | Enable offline message storage (file-based, [see warning below](#file-based-storage-warning)) |
 | `managed` | `bool` | `True` | Enable managed mode (WiFi, queuing, offline storage) |
 | `event_loop` | `asyncio.AbstractEventLoop` | `None` | Event loop for async mode (integrates with user applications) |
+| `enable_mqtt` | `bool` | `True` | Enable MQTT messaging (set False for streaming-only use cases) |
 
 > **Mode and Event Loop**: Given MicroPython only has a single event loop, having the sync mode allows using one of the hardware timers to circumvent this limitation for necesarry non-blocking, background processing. This is the default mode for ease of use.
+>
+> **Streaming Requirement**: JPEG streaming requires `mode="async"`. The client will warn if you try to start streaming in sync mode.
 
 ## Operation Modes
 
@@ -581,7 +645,7 @@ asyncio.run(main())
 
 - MicroPython 1.19.0+ with asyncio support
 - Devices with sufficient RAM (recommended 150KB+ for reliable TLS)
-- Platforms like ESP32-S2/S3 or ESP32-WROOM with PSRAM (for best async performance)
+- Platforms like ESP32-S2/S3 or ESP32-WROOM with PSRAM (recommended for async mode)
 
 ### Event Loop Integration
 
@@ -630,7 +694,7 @@ asyncio.run(main())
 
 - No event loop conflicts
 - Client integrates with existing async applications
-- Shared resources and better performance
+- Shared resources and efficient operation
 - Application remains in control of the event loop
 
 ### Async Configuration Options
@@ -642,6 +706,317 @@ client = Client(
     debug=True
 )
 ```
+
+## JPEG Video Streaming
+
+The SDK supports real-time JPEG video streaming with cooperative multitasking, allowing streaming and messaging to work together seamlessly.
+
+> **Note:** Streaming requires a separate installation step. See [Installing JPEG Streaming](#installing-jpeg-streaming-optional) in the Installation section.
+
+### Quick Start
+
+```python
+import asyncio
+from tendrl import Client
+
+async def main():
+    # Initialize client in async mode (REQUIRED for streaming)
+    client = Client(
+        mode="async",        # REQUIRED: Streaming only works in async mode
+        debug=True,
+        enable_mqtt=True,    # Enable messaging (default) or False for streaming-only
+    )
+    
+    # Start the client
+    client.start()
+    
+    # Wait for connection
+    await asyncio.sleep(2)
+    
+    # Start streaming - simplest usage (uses default camera settings)
+    # Camera automatically set up with defaults (VGA, quality 60)
+    client.start_streaming()
+    
+    # Keep running
+    await asyncio.sleep(60)
+    await client.async_stop()
+
+asyncio.run(main())
+```
+
+### Streaming Features
+
+- **Real-time JPEG Streaming**: Stream video frames to Tendrl platform
+- **Cooperative Multitasking**: Yields control to allow messaging operations
+- **Automatic Camera Setup**: Default camera configuration for OpenMV devices
+- **Dynamic Control**: Start/stop streaming programmatically
+- **Duration Control**: Stream for a specific duration or indefinitely
+
+### Streaming Requirements
+
+- **Streaming Module Installed**: Requires `tendrl/streaming.py` to be installed (see [Installing JPEG Streaming](#installing-jpeg-streaming-optional))
+- **Async Mode**: Must use `Client(mode="async")`
+- **Camera Support**: Requires `sensor` module (OpenMV) or custom capture function
+- **Network Connection**: Requires active network connection
+- **API Key**: Must be configured in `config.json`
+
+### Streaming Methods
+
+#### `start_streaming()`
+
+Start streaming JPEG frames to the server.
+
+```python
+stream_task = client.start_streaming(
+    capture_frame_func=None,      # Custom capture function (optional)
+    chunk_size=2048,               # Chunk size for sending (default: 2048)
+    yield_every_bytes=8*1024,     # Yield after sending this many bytes (default: 8KB)
+    yield_ms=1,                    # Milliseconds to sleep when yielding (default: 1)
+    target_fps=25,                 # Target frames per second (default: 25, max: 30)
+    gc_interval=250,               # Run GC every N frames (default: 250, ~10s at 25 FPS)
+    reconnect_delay=5000,          # Reconnect delay in ms (default: 5000)
+    yield_interval=3,              # Yield every N frames (default: 3)
+    camera_config=None,            # Camera configuration dict (optional)
+    camera_setup_func=None,        # Custom camera setup function (optional)
+    stream_duration=-1,            # Duration in seconds (-1 = indefinite, default)
+    debug=None                     # Enable debug output (default: uses client.debug)
+)
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `capture_frame_func` | `callable` | `None` | Function that returns JPEG bytes. If `None` and `sensor` module available, uses default capture. |
+| `camera_config` | `dict` | `None` | Camera settings: `framesize`, `quality`, `pixformat`, `skip_frames_time` |
+| `camera_setup_func` | `callable` | `None` | Custom function to set up camera. If provided, used instead of `camera_config`. |
+| `chunk_size` | `int` | `2048` | Size of chunks to send over network |
+| `yield_every_bytes` | `int` | `8*1024` | Yield to event loop after sending this many bytes |
+| `yield_ms` | `int` | `1` | Milliseconds to sleep when yielding |
+| `target_fps` | `int` | `25` | Target frames per second (maximum: 30, enforced by server) |
+| `gc_interval` | `int` | `250` | Run garbage collection every N frames (~10 seconds at 25 FPS) |
+| `reconnect_delay` | `int` | `5000` | Milliseconds to wait before reconnecting on error |
+| `yield_interval` | `int` | `3` | Yield to event loop every N frames (0 to disable) |
+| `stream_duration` | `int` | `-1` | Duration in seconds. `-1` = stream indefinitely until stopped |
+| `debug` | `bool` | `None` | Enable debug output (defaults to `client.debug` if `None`) |
+
+**Returns:** Background task (async mode) or `None` (sync mode)
+
+**Raises:**
+- `ValueError`: If `target_fps` exceeds 30 or is <= 0
+- `ImportError`: If `sensor` module not available and no `capture_frame_func` provided
+
+#### `stop_streaming()`
+
+Stop the active streaming task.
+
+```python
+client.stop_streaming()
+```
+
+**Returns:** `None`
+
+#### `is_streaming()`
+
+Check if streaming is currently active.
+
+```python
+if client.is_streaming():
+    print("Streaming is active")
+    client.stop_streaming()
+```
+
+**Returns:** `bool` - `True` if streaming is active, `False` otherwise
+
+### Streaming Examples
+
+#### Example 1: Simplest Usage (Default Camera)
+
+```python
+import asyncio
+from tendrl import Client
+
+async def main():
+    client = Client(mode="async", debug=True)
+    client.start()
+    await asyncio.sleep(2)
+    
+    # Simplest usage - uses default camera settings (VGA, quality 60)
+    client.start_streaming()
+    
+    # Stream indefinitely (default)
+    await asyncio.sleep(3600)  # Run for 1 hour
+    await client.async_stop()
+
+asyncio.run(main())
+```
+
+#### Example 2: Configurable Camera Settings
+
+```python
+import asyncio
+import sensor
+from tendrl import Client
+
+async def main():
+    client = Client(mode="async", debug=True)
+    client.start()
+    await asyncio.sleep(2)
+    
+    # Configure camera settings
+    client.start_streaming(
+        camera_config={
+            "framesize": sensor.VGA,      # 640x480
+            "quality": 60,                # JPEG quality 0-100 (lower = less memory)
+            "pixformat": sensor.JPEG,     # JPEG format
+            "skip_frames_time": 1500      # Stabilization time in ms
+        },
+        target_fps=25,
+        debug=True
+    )
+    
+    await asyncio.sleep(60)
+    await client.async_stop()
+
+asyncio.run(main())
+```
+
+#### Example 3: Custom Capture Function
+
+```python
+import asyncio
+import sensor
+from tendrl import Client
+
+def setup_camera():
+    """Custom camera setup"""
+    sensor.reset()
+    sensor.set_pixformat(sensor.JPEG)
+    sensor.set_framesize(sensor.VGA)
+    sensor.set_quality(60)
+    sensor.skip_frames(time=1500)
+
+def capture_frame():
+    """Custom capture function"""
+    img = sensor.snapshot()
+    return img.bytearray()
+
+async def main():
+    client = Client(mode="async", debug=True)
+    client.start()
+    await asyncio.sleep(2)
+    
+    # Use custom capture function
+    setup_camera()
+    client.start_streaming(
+        capture_frame_func=capture_frame,
+        target_fps=25
+    )
+    
+    await asyncio.sleep(60)
+    await client.async_stop()
+
+asyncio.run(main())
+```
+
+#### Example 4: Timed Streaming (Motion Detection)
+
+```python
+import asyncio
+from tendrl import Client
+
+async def main():
+    client = Client(mode="async", debug=True)
+    client.start()
+    await asyncio.sleep(2)
+    
+    # Stream for 30 seconds when motion detected
+    if detect_motion():
+        client.start_streaming(stream_duration=30)
+        print("Streaming for 30 seconds...")
+    
+    await asyncio.sleep(60)
+    await client.async_stop()
+
+asyncio.run(main())
+```
+
+#### Example 5: Streaming + Messaging Together
+
+```python
+import asyncio
+from tendrl import Client
+
+async def main():
+    # Create client with both streaming and messaging
+    client = Client(
+        mode="async",
+        debug=True,
+        enable_mqtt=True,  # Enable messaging (default)
+    )
+    
+    client.start()
+    await asyncio.sleep(2)
+    
+    # Start streaming
+    client.start_streaming(target_fps=25)
+    
+    # Publish messages while streaming
+    @client.tether(tags=["sensors"])
+    async def read_sensors():
+        return {
+            "temperature": 23.5,
+            "streaming_active": client.is_streaming()
+        }
+    
+    # Both streaming and messaging work together
+    await asyncio.sleep(60)
+    await client.async_stop()
+
+asyncio.run(main())
+```
+
+### Camera Configuration Options
+
+When using `camera_config` parameter:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `framesize` | `int` | `sensor.VGA` | Frame size (e.g., `sensor.VGA`, `sensor.QVGA`) |
+| `quality` | `int` | `60` | JPEG quality 0-100 (lower = less memory, faster) |
+| `pixformat` | `int` | `sensor.JPEG` | Pixel format (typically `sensor.JPEG`) |
+| `skip_frames_time` | `int` | `1500` | Time in ms to skip frames for stabilization |
+
+### Streaming Configuration
+
+The streaming implementation uses cooperative multitasking:
+
+- **Cooperative Yielding**: Yields every 8KB sent and every 3 frames
+- **Memory Management**: Automatic GC every 250 frames (~10 seconds at 25 FPS)
+- **Frame Pacing**: Accurate frame timing with proper delays
+- **Error Recovery**: Automatic reconnection on network errors
+
+**Default Parameters:**
+- `chunk_size=2048`: Balanced throughput and responsiveness
+- `yield_every_bytes=8*1024`: Frequent yielding for messaging cooperation
+- `yield_interval=3`: Yields every 3 frames
+- `target_fps=25`: Good balance of quality and performance
+- `gc_interval=250`: Prevents large automatic GC freezes
+
+### Streaming Best Practices
+
+1. **Use Async Mode**: Streaming requires `mode="async"`
+2. **Quality Settings**: Lower quality (50-60) = less memory usage, faster processing
+3. **Frame Size**: Smaller frames (QVGA) = faster, less bandwidth
+4. **Monitor Memory**: Use `gc.mem_free()` to monitor available memory
+5. **Test Under Load**: Verify streaming + messaging work together in your use case
+
+### Streaming Limitations
+
+- **Maximum FPS**: Server enforces 30 FPS maximum
+- **Network Dependent**: Requires stable network connection
+- **Memory Usage**: JPEG frames consume memory (quality and size affect usage)
+- **Camera Required**: Requires camera hardware or custom capture function
 
 ## Database Operations
 
@@ -737,7 +1112,7 @@ await client.async_stop()
 
 ## Memory Management
 
-The SDK is optimized for memory-constrained devices:
+The SDK is designed for memory-constrained devices:
 
 ```python
 import gc
@@ -762,7 +1137,8 @@ print(f"Free memory: {free_mem} bytes")
 
 **Memory (RAM):**
 - **Minimum Recommended:** 150 KB total RAM
-- **Client Runtime:** ~57 KB steady state
+- **Client Runtime:** ~57 KB steady state (without streaming active)
+- **Streaming Runtime:** Additional ~20-40 KB when streaming (JPEG buffers + socket buffers)
 - **TLS Overhead:** ~3-4 KB
 - **Safety Margin:** ~20-30 KB for application code and buffers
 
@@ -776,6 +1152,7 @@ print(f"Free memory: {free_mem} bytes")
 ## Features
 
 - **Lightweight**: Minimal installation uses <100KB flash
+- **JPEG Video Streaming**: Real-time video streaming with cooperative multitasking
 - **Local Database**: Optional MicroTetherDB with TTL, queries, and caching
 - **Automatic TTL**: Background cleanup of expired data
 - **Rich Queries**: MongoDB-style query operators
@@ -849,6 +1226,75 @@ client = Client(
 # ❌ No local data storage
 # ❌ No offline capabilities
 ```
+
+## Examples
+
+The SDK includes comprehensive examples demonstrating various use cases:
+
+### Basic Examples
+
+- **`examples/jpeg_stream_example.py`**: Simple streaming example
+- **`examples/streaming_with_messaging.py`**: Streaming + messaging together
+- **`examples/client_configuration.py`**: Configuration examples
+
+### Running Examples
+
+```python
+# Upload example file to your device
+# Then run in REPL or Thonny:
+
+import examples.jpeg_stream_example
+# Or
+import examples.streaming_with_messaging
+```
+
+## Troubleshooting
+
+### Streaming Issues
+
+**Streaming doesn't start:**
+- Ensure `mode="async"` is set
+- Check that camera/sensor module is available
+- Verify network connection is established
+- Check `debug=True` for error messages
+
+**Frame drops:**
+- Lower JPEG quality (try 50-60)
+- Reduce frame size (try QVGA instead of VGA)
+- Check network stability
+- Monitor memory usage
+
+**Streaming freezes:**
+- Normal: GC runs every ~10 seconds (configurable via `gc_interval`)
+- Reduce `gc_interval` for more frequent, smaller GCs
+- Check for memory leaks in your code
+
+### Messaging Issues
+
+**Messages not sending:**
+- Check `client.client_enabled` status
+- Verify MQTT connection (`client.mqtt.connected`)
+- Check network connectivity
+- Review debug output
+
+**Batch processing slow:**
+- Normal: Batches process in 2-5ms
+- Check message size (large messages = slower)
+- Monitor queue size
+
+### General Issues
+
+**Memory errors:**
+- Use minimal installation if database not needed
+- Lower JPEG quality for streaming
+- Reduce batch sizes
+- Monitor with `gc.mem_free()`
+
+**Connection issues:**
+- Verify WiFi credentials in `config.json`
+- Check API key is valid
+- Review network connectivity
+- Check TLS/SSL configuration
 
 ## License
 
