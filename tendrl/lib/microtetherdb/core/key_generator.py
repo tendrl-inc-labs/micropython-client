@@ -14,11 +14,14 @@ class KeyGenerator:
     @staticmethod
     def parse_key(key):
         try:
-            timestamp_str, ttl_str, unique_id = key.split(":")
+            # Optimize: use split with maxsplit=2 to avoid unnecessary splits
+            parts = key.split(":", 2)
+            if len(parts) < 3:
+                return None
             return {
-                'timestamp': int(timestamp_str),
-                'ttl': int(ttl_str),
-                'unique_id': unique_id
+                'timestamp': int(parts[0]),
+                'ttl': int(parts[1]),
+                'unique_id': parts[2]
             }
         except (ValueError, IndexError):
             return None

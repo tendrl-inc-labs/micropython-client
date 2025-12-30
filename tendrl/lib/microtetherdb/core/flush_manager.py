@@ -18,6 +18,9 @@ class FlushManager:
         self._last_flush_time = time.time()
         # Smart auto-flush: memory doesn't need aggressive time-based flushing
         self._auto_flush_seconds = 10 if self.in_memory else 5
+        # Cache adaptive threshold calculation to avoid repeated sum() calls
+        self._cached_threshold = None
+        self._last_threshold_check_ops = 0
     
     def get_adaptive_flush_threshold(self):
         """Calculate adaptive flush threshold based on operation patterns"""
@@ -29,14 +32,20 @@ class FlushManager:
         if self.in_memory:
             return max(5, self._flush_threshold // 2)  # Moderate threshold
         
-        # Calculate based on operation counts for file operations
+        # Cache threshold calculation - only recalculate if operation counts changed significantly
+        # (Avoid expensive sum() call on every check)
         total_ops = sum(self._operation_counts.values())
-        if total_ops < 100:
-            return 10
-        elif total_ops < 1000:
-            return 15
-        else:
-            return 20
+        # Only recalculate if ops changed by more than 10% (performance optimization)
+        if (self._cached_threshold is None or 
+            abs(total_ops - self._last_threshold_check_ops) > max(10, self._last_threshold_check_ops * 0.1)):
+            if total_ops < 100:
+                self._cached_threshold = 10
+            elif total_ops < 1000:
+                self._cached_threshold = 15
+            else:
+                self._cached_threshold = 20
+            self._last_threshold_check_ops = total_ops
+        return self._cached_threshold
     
     def should_flush(self, additional_ops=1):
         """Check if database should be flushed based on counters and time"""

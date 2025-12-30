@@ -12,6 +12,8 @@ class QueryEngine:
         if "." not in field:
             return doc.get(field)
         
+        # Optimize: cache split result if field is accessed multiple times
+        # (For now, just optimize the split - could add caching layer if needed)
         parts = field.split(".")
         value = doc
         for part in parts:

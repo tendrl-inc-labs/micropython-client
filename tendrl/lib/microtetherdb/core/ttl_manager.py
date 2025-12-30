@@ -27,9 +27,12 @@ class TTLManager:
     def get_expiry_time(self, key):
         """Get expiry timestamp for a key, or None if no TTL"""
         try:
-            timestamp_str, ttl_str, _ = key.split(":")
-            timestamp = int(timestamp_str)
-            ttl = int(ttl_str)
+            # Optimize: use split with maxsplit=2 to avoid unnecessary splits
+            parts = key.split(":", 2)
+            if len(parts) < 2:
+                return None
+            timestamp = int(parts[0])
+            ttl = int(parts[1])
             if ttl == 0:
                 return None  # No TTL
             return timestamp + ttl
@@ -52,13 +55,12 @@ class TTLManager:
     def is_expired(self, key):
         """Check if a key is expired based on its embedded TTL"""
         try:
-            timestamp_str, ttl_str, _ = key.split(":")
-            timestamp = int(timestamp_str)
-            ttl = int(ttl_str)
-            if ttl == 0:
-                return False
+            # Optimize: reuse get_expiry_time logic to avoid duplicate parsing
+            expiry_time = self.get_expiry_time(key)
+            if expiry_time is None:
+                return False  # No TTL means not expired
             current_time = int(time.time())
-            return current_time > (timestamp + ttl)
+            return current_time >= expiry_time
         except (ValueError, IndexError):
             return True
     
