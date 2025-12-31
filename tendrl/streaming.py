@@ -1,62 +1,51 @@
-def send_all(sock, data):
-    mv = memoryview(data)
-    sent = 0
-    while sent < len(mv):
-        n = sock.write(mv[sent:]) if hasattr(sock, "write") else sock.send(mv[sent:])
-        if n:
-            sent += n
-
 async def send_all_async(sock, data, yield_every_bytes=32*1024, yield_ms=1):
     """Async version of send_all that yields periodically to avoid blocking"""
-    try:
-        import asyncio
-    except ImportError:
-        # Fallback to sync version if asyncio not available
-        send_all(sock, data)
-        return
-
+    import asyncio
     mv = memoryview(data)
     sent = 0
     sent_since_yield = 0
+    consecutive_zeros = 0  # Track consecutive zero returns (indicates connection issue)
+    max_consecutive_zeros = 10  # Max zero returns before raising error
 
     while sent < len(mv):
-        n = sock.write(mv[sent:]) if hasattr(sock, "write") else sock.send(mv[sent:])
-        if n:
-            sent += n
-            sent_since_yield += n
+        try:
+            # Check if socket is still valid before writing
+            if not hasattr(sock, 'write') and not hasattr(sock, 'send'):
+                raise OSError(-1, "Socket is invalid")
+            
+            n = sock.write(mv[sent:]) if hasattr(sock, "write") else sock.send(mv[sent:])
+            
+            if n > 0:
+                sent += n
+                sent_since_yield += n
+                consecutive_zeros = 0  # Reset counter on successful write
+            elif n == 0:
+                # Socket buffer full or connection issue - wait briefly and retry
+                consecutive_zeros += 1
+                if consecutive_zeros >= max_consecutive_zeros:
+                    raise OSError(-1, "Socket write returned 0 multiple times - connection may be dead")
+                # Increase wait time progressively to avoid tight loop that feels like freeze
+                # Also yield to event loop to allow other tasks
+                wait_time = min(0.01 * consecutive_zeros, 0.1)  # Progressive backoff, max 100ms
+                await asyncio.sleep(wait_time)
+                continue
+            else:
+                # Negative return value indicates error
+                raise OSError(-1, f"Socket write returned {n}")
 
             # Yield periodically to allow other tasks to run
             if sent_since_yield >= yield_every_bytes:
                 sent_since_yield = 0
                 await asyncio.sleep(yield_ms / 1000.0)
-
-def send_bytes_chunked(sock, data, chunk_size=4096, yield_every_bytes=32*1024, yield_ms=1):
-    import time
-    if len(data) < yield_every_bytes:
-        send_all(sock, data)
-        return
-
-    mv = memoryview(data)
-    sent_since_yield = 0
-
-    for i in range(0, len(mv), chunk_size):
-        chunk = mv[i:i + chunk_size]
-        send_all(sock, chunk)
-        sent_since_yield += len(chunk)
-
-        # Yield less frequently - H7/RT1062 can handle larger sends
-        if sent_since_yield >= yield_every_bytes:
-            sent_since_yield = 0
-            time.sleep_ms(yield_ms)
+        except OSError:
+            # Re-raise OSError to be caught by caller
+            raise
+        except Exception as exc:
+            # Wrap other exceptions as OSError for consistent handling
+            raise OSError(-1, f"Error during socket write: {exc}")
 
 async def send_bytes_chunked_async(sock, data, chunk_size=4096, yield_every_bytes=32*1024, yield_ms=1):
-    try:
-        import asyncio
-    except ImportError:
-        # Fallback to sync version if asyncio not available
-        send_bytes_chunked(sock, data, chunk_size, yield_every_bytes, yield_ms)
-        return
-
+    import asyncio
     if len(data) < yield_every_bytes:
         await send_all_async(sock, data, yield_every_bytes, yield_ms)
         return
@@ -76,17 +65,6 @@ async def send_bytes_chunked_async(sock, data, chunk_size=4096, yield_every_byte
 
 BOUNDARY = "tendrl"
 
-def send_jpeg_frame(sock, jpeg_data, chunk_size=4096, yield_every_bytes=32*1024, yield_ms=1):
-    header = (
-        f"--{BOUNDARY}\r\n"
-        "Content-Type: image/jpeg\r\n"
-        f"Content-Length: {len(jpeg_data)}\r\n"
-        "\r\n"
-    )
-    send_all(sock, header.encode('utf-8'))
-    send_bytes_chunked(sock, jpeg_data, chunk_size, yield_every_bytes, yield_ms)
-    send_all(sock, b"\r\n")
-
 async def send_jpeg_frame_async(sock, jpeg_data, chunk_size=4096, yield_every_bytes=32*1024, yield_ms=1):
     # Optimize header building: only Content-Length changes, build efficiently
     # Pre-encode static parts to avoid repeated string operations
@@ -94,9 +72,25 @@ async def send_jpeg_frame_async(sock, jpeg_data, chunk_size=4096, yield_every_by
     header_suffix = b"\r\n\r\n"
     content_length_str = str(len(jpeg_data)).encode('utf-8')
     header = header_prefix + content_length_str + header_suffix
-    await send_all_async(sock, header, yield_every_bytes, yield_ms)
-    await send_bytes_chunked_async(sock, jpeg_data, chunk_size, yield_every_bytes, yield_ms)
-    await send_all_async(sock, b"\r\n", yield_every_bytes, yield_ms)
+    
+    # Send header - if this fails, connection is definitely dead
+    try:
+        await send_all_async(sock, header, yield_every_bytes, yield_ms)
+    except OSError:
+        raise  # Re-raise to be caught by caller
+    
+    # Send frame data - if this fails mid-transmission, connection died during frame send
+    try:
+        await send_bytes_chunked_async(sock, jpeg_data, chunk_size, yield_every_bytes, yield_ms)
+    except OSError as exc:
+        # Connection died during frame transmission - this is the "unexpected EOF" case
+        raise OSError(-104, f"Connection reset during frame transmission: {exc}")
+    
+    # Send boundary terminator - if this fails, connection died after frame
+    try:
+        await send_all_async(sock, b"\r\n", yield_every_bytes, yield_ms)
+    except OSError:
+        raise  # Re-raise to be caught by caller
 
 def create_stream_request(server_host, api_key):
     auth_header = ""
@@ -183,75 +177,31 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                         print(f"Streaming duration ({stream_duration}s) elapsed, stopping...")
                     break
             try:
-                # Ensure client is started and MQTT is connected before streaming
-                # This is required for online entity status that is set when MQTT connects
-                if not client_instance.client_enabled:
-                    if debug:
-                        print("Streaming: Client not enabled, attempting to connect...")
-                    # Try to connect if not already connected
-                    if client_instance.mode == "async":
-                        # In async mode, try async connect
-                        if not await client_instance._async_connect():
-                            if debug:
-                                print("Streaming: Failed to connect client, retrying...")
-                            await asyncio.sleep(reconnect_delay / 1000.0)
-                            continue
-                    else:
-                        # In sync mode, this shouldn't happen in async stream loop
-                        # but handle it gracefully
-                        if not client_instance._connect():
-                            if debug:
-                                print("Streaming: Failed to connect client, retrying...")
-                            await asyncio.sleep(reconnect_delay / 1000.0)
-                            continue
-                
-                # Ensure MQTT is connected if MQTT is enabled
-                # The online entity status is set when MQTT connects to the server
-                if client_instance.mqtt and not client_instance.mqtt.connected:
-                    if debug:
-                        print("Streaming: Waiting for MQTT connection (required for online entity status)...")
-                    # Wait for MQTT connection - the client's async loop should be handling reconnection
-                    # Give it some time to connect
-                    max_wait_time = 10.0  # Wait up to 10 seconds for MQTT connection
-                    wait_start = time.ticks_ms()
-                    while not client_instance.mqtt.connected:
-                        elapsed_wait = time.ticks_diff(time.ticks_ms(), wait_start) / 1000.0
-                        if elapsed_wait >= max_wait_time:
-                            if debug:
-                                print("Streaming: MQTT connection timeout, retrying client connection...")
-                            # Try to reconnect
-                            if client_instance.mode == "async":
-                                await client_instance._async_connect()
-                            else:
-                                client_instance._connect()
-                            break
-                        await asyncio.sleep(0.5)  # Check every 500ms
-                    
-                    # If still not connected after waiting, skip this iteration
-                    if client_instance.mqtt and not client_instance.mqtt.connected:
-                        if debug:
-                            print("Streaming: MQTT still not connected, retrying...")
-                        await asyncio.sleep(reconnect_delay / 1000.0)
-                        continue
-                
-                # Ensure network connection via network manager (client handles networking)
-                if not client_instance.network.connect():
-                    if debug:
-                        print("Streaming: Failed to connect network, retrying...")
-                    await asyncio.sleep(reconnect_delay / 1000.0)
-                    continue
-
-                if debug:
-                    print(f"Streaming: Network and MQTT connected, attempting server connection...")
+                # Just attempt socket connection - if network is down, it will fail naturally
+                # No need to pre-check network/MQTT status as socket.connect() will tell us
 
                 # Create socket and connect
+                # These operations are blocking, so yield before and after to prevent freezes
                 try:
                     if debug:
                         print(f"Streaming: Resolving {server_host}:{port}...")
+                    # Yield before blocking DNS lookup to allow other tasks to run
+                    await asyncio.sleep(0)
                     s = socket.socket()
+                    # DNS lookup is blocking - yield after to allow event loop to process
                     addr = socket.getaddrinfo(server_host, port)[0][-1]
+                    await asyncio.sleep(0)  # Yield after DNS lookup
+                    
+                    # Socket connect is blocking - yield before and after
+                    await asyncio.sleep(0)
                     s.connect(addr)
+                    await asyncio.sleep(0)  # Yield after connect
+                    
+                    # SSL handshake is blocking and can take time - yield before and after
+                    await asyncio.sleep(0)
                     s = ssl.wrap_socket(s, server_hostname=server_host)
+                    await asyncio.sleep(0)  # Yield after SSL handshake
+                    
                     if debug:
                         print(f"Streaming: Connected to server!")
                 except Exception as e:
@@ -274,11 +224,15 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
 
                 first_frame = None
                 try:
+                    # Yield before potentially blocking camera capture
+                    await asyncio.sleep(0)
                     # Get first frame from capture function
                     result = capture_frame_func()
                     # If result is a coroutine (awaitable), await it
                     if ASYNCIO_AVAILABLE and hasattr(result, '__await__'):
                         result = await result
+                    # Yield after camera capture to allow other tasks
+                    await asyncio.sleep(0)
 
                     # Handle tuple return (jpeg_data, timestamp) or just jpeg_data
                     if isinstance(result, tuple) and len(result) == 2:
@@ -313,16 +267,22 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
 
                 # Stream remaining frames
                 frame_count = 1  # First frame already sent
+                consecutive_errors = 0
+                max_consecutive_errors = 3  # Allow a few errors before giving up on this connection
                 while True:
                     t0 = time.ticks_ms()
 
                     # Get JPEG data from capture function
                     # Handle both sync and async functions
                     try:
+                        # Yield before potentially blocking camera capture
+                        await asyncio.sleep(0)
                         result = capture_frame_func()
                         # If result is a coroutine (awaitable), await it
                         if ASYNCIO_AVAILABLE and hasattr(result, '__await__'):
                             result = await result
+                        # Yield after camera capture to allow other tasks
+                        await asyncio.sleep(0)
                     except Exception as func_err:
                         if debug:
                             print(f"Error in capture function: {func_err}")
@@ -350,6 +310,8 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                             yield_every_bytes=yield_every_bytes,
                             yield_ms=yield_ms
                         )
+                        # Reset error counter on successful send
+                        consecutive_errors = 0
                     except OSError as send_err:
                         # Handle socket errors during frame sending
                         errno = send_err.args[0] if send_err.args else 'unknown'
@@ -362,13 +324,27 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                             110: "ETIMEDOUT - Connection timed out",
                             111: "ECONNREFUSED - Connection refused",
                         }.get(errno, f"OSError {errno}")
-                        if debug:
-                            print(f"Error sending frame: {err_msg}")
-                        break  # Break to reconnect
+                        
+                        consecutive_errors += 1
+                        
+                        # If we've had too many consecutive errors, give up on this connection
+                        # Don't log - reconnection is automatic and expected behavior
+                        if consecutive_errors >= max_consecutive_errors:
+                            break  # Break to reconnect
+                        
+                        # For single errors, wait briefly and try next frame
+                        # This handles transient network issues
+                        # Don't log individual errors - they're expected and handled automatically
+                        await asyncio.sleep(0.1)
+                        continue
                     except Exception as send_err:
                         if debug:
                             print(f"Error sending frame: {send_err} (type: {type(send_err).__name__})")
-                        break
+                        consecutive_errors += 1
+                        if consecutive_errors >= max_consecutive_errors:
+                            break
+                        await asyncio.sleep(0.1)
+                        continue
 
                     frame_count += 1
 
@@ -386,8 +362,11 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                     # At 25 FPS: 250 frames = ~10 seconds (predictable, smaller GCs)
                     # This works alongside client GC to keep memory pressure low
                     if gc_interval > 0 and (frame_count % gc_interval) == 0:
+                        # Yield before GC to allow other tasks to finish current operations
+                        await asyncio.sleep(0)
                         gc.collect()
-                        await asyncio.sleep(0)  # Yield after GC to allow other tasks
+                        # Yield after GC to allow other tasks to resume
+                        await asyncio.sleep(0)
 
                     # Yield control periodically to allow other tasks
                     if yield_interval > 0 and (frame_count % yield_interval) == 0:
@@ -404,18 +383,22 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                             await asyncio.sleep(0)
 
             except OSError as e:
+                # Connection errors are handled automatically by reconnection
+                # Only log non-ECONNRESET errors (connection resets are expected)
                 if debug:
                     errno = e.args[0] if e.args else 'unknown'
-                    err_msg = {
-                        -104: "ECONNRESET - Connection reset by peer (server closed connection)",
-                        -6: "EHOSTUNREACH - Host unreachable (network/DNS issue)",
-                        -2: "ENOENT - Name or service not known (DNS resolution failed)",
-                        -1: "EIO - I/O error",
-                        -5: "EIO - I/O error",
-                        110: "ETIMEDOUT - Connection timed out",
-                        111: "ECONNREFUSED - Connection refused",
-                    }.get(errno, f"OSError {errno}")
-                    print(f"Stream error: {e} ({err_msg})")
+                    # ECONNRESET (-104) is expected and handled automatically
+                    if errno != -104:
+                        err_msg = {
+                            -6: "EHOSTUNREACH - Host unreachable (network/DNS issue)",
+                            -2: "ENOENT - Name or service not known (DNS resolution failed)",
+                            -1: "EIO - I/O error",
+                            -5: "EIO - I/O error",
+                            110: "ETIMEDOUT - Connection timed out",
+                            111: "ECONNREFUSED - Connection refused",
+                        }.get(errno, f"OSError {errno}")
+                        if err_msg:
+                            print(f"Stream error: {err_msg}")
             except Exception as e:
                 if debug:
                     print(f"Stream ended: {e} (type: {type(e).__name__})")
@@ -429,9 +412,7 @@ def start_jpeg_stream(client_instance, capture_frame_func, chunk_size=2048,
                     pass
                 s = None
 
-            if debug:
-                reconnect_s = reconnect_delay / 1000.0
-                print(f"Reconnecting in {reconnect_s} seconds...")
+            # Reconnection happens automatically - no need to log unless it fails repeatedly
 
             # Wait before reconnecting
             await asyncio.sleep(reconnect_delay / 1000.0)

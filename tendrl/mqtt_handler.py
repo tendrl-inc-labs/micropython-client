@@ -1,7 +1,8 @@
+import gc
 import json
 import time
 import requests
-import gc
+
 
 try:
     from umqtt.simple import MQTTException
@@ -15,6 +16,9 @@ except ImportError:
         MQTT_SSL_ENABLED = False
     except ImportError:
         print("Warning: mqtt not available")
+
+# Import OpenMV detection utility
+from .utils.util_helpers import is_openmv
 
 from .config_manager import update_entity_cache , get_entity_cache
 
@@ -63,17 +67,11 @@ class MQTTHandler:
                 self._messages_topic = None
                 return True
 
-            if self.debug:
-                print("Fetching entity info from API...")
-
             api_base_url = self.config.get("app_url", "https://app.tendrl.com")
 
             # Ensure the URL has a protocol prefix
             if not api_base_url.startswith(('http://', 'https://')):
                 api_base_url = f"http://{api_base_url}"
-
-            if self.debug:
-                print(f"API Base URL: {api_base_url}")
 
             headers = {
                 'Authorization': f'Bearer {api_key}',
@@ -85,14 +83,9 @@ class MQTTHandler:
             url = f'{api_base_url}/api/claims'
             if client_version:
                 url = f'{url}?e_type={client_version}'
-            if self.debug:
-                print(f"Fetching entity info from: {url}")
 
             gc.collect()
             response = requests.get(url, headers=headers)
-
-            if self.debug:
-                print(f"API Response Status: {response.status_code}")
 
             if response.status_code == 200:
                 gc.collect()
@@ -105,8 +98,6 @@ class MQTTHandler:
                         api_key_id=entity_info.get('jti'),
                         subject=entity_info.get('sub')
                     )
-                    if self.debug:
-                        print("Caching entity info")
                 except Exception as cache_err:
                     if self.debug:
                         print(f"Error updating entity cache: {cache_err}")
@@ -132,7 +123,7 @@ class MQTTHandler:
         # Return cached topic if available (performance optimization)
         if self._publish_topic:
             return self._publish_topic
-            
+
         if not self.entity_info:
             raise Exception('Entity info not available')
 
@@ -157,7 +148,7 @@ class MQTTHandler:
         # Return cached topic if available (performance optimization)
         if self._messages_topic:
             return self._messages_topic
-            
+
         if not self.entity_info:
             raise Exception('Entity info not available')
 
@@ -215,9 +206,6 @@ class MQTTHandler:
         mqtt_port = self.config.get("mqtt_port")
         mqtt_ssl = self.config.get("mqtt_ssl")
 
-        if self.debug:
-            print(f"MQTT config: {mqtt_host}:{mqtt_port})")
-
         # Validate MQTT host configuration
         if not mqtt_host or mqtt_host.strip() == "":
             if self.debug:
@@ -234,21 +222,58 @@ class MQTTHandler:
         username = self.entity_info['jti']
         password = api_key
 
-        if self.debug:
-            print(f"Connecting to MQTT broker: {mqtt_host}:{mqtt_port}")
-            print(f"Client ID: {client_id}")
-            print(f"Username: {username}")
-
         try:
             max_retries = 3
             for attempt in range(max_retries):
                 try:
+                    # On first attempt, allow time for DNS resolution and SSL stack initialization
+                    # DNS resolution can fail on first attempt if network stack isn't fully ready
+                    # Do this BEFORE cleaning up old client to give network stack time to initialize
+                    if attempt == 0:
+                        # Longer delay to allow DNS resolution to initialize
+                        # This helps avoid ENOENT (-2) errors on first connection
+                        time.sleep(1.0)
+
+                        # For OpenMV with SSL, also allow SSL stack initialization time
+                        if is_openmv() and mqtt_ssl:
+                            time.sleep(2.0)  # Increased time for SSL context initialization on OpenMV
+                    elif attempt > 0:
+                        # After a failed attempt, wait longer before retrying
+                        # This is especially important after timeout errors
+                        retry_delay = 3 + (2 ** attempt)  # 5s, 7s, 11s for attempts 1, 2, 3
+                        if self.debug:
+                            print(f"   (Waiting {retry_delay}s before retry...)")
+                        time.sleep(retry_delay)
+
+                    # Clean up any existing MQTT client - check if it's valid first
+                    # Do this AFTER the delay to avoid disconnecting a partially initialized client
                     if self._mqtt:
                         try:
-                            self._mqtt.disconnect()
+                            # Only try to disconnect if the client has a disconnect method
+                            # and if it's actually connected (has a valid socket)
+                            if hasattr(self._mqtt, 'disconnect'):
+                                # Check if client is connected before trying to disconnect
+                                # This avoids errors when socket is None
+                                is_connected = False
+                                if hasattr(self._mqtt, 'sock') and self._mqtt.sock is not None:
+                                    is_connected = True
+                                elif hasattr(self._mqtt, 'isconnected') and callable(self._mqtt.isconnected):
+                                    is_connected = self._mqtt.isconnected()
+
+                                if is_connected:
+                                    self._mqtt.disconnect()
+                        except (AttributeError, OSError) as close_err:
+                            # AttributeError/OSError from None socket is expected for failed connections
+                            # Only log if it's not a NoneType error (which is expected)
+                            if self.debug and "'NoneType'" not in str(close_err) and "write" not in str(close_err):
+                                print(f"Error disconnecting existing MQTT client: {close_err}")
                         except Exception as close_err:
+                            # Other errors might be worth logging
                             if self.debug:
                                 print(f"Error disconnecting existing MQTT client: {close_err}")
+                        finally:
+                            # Always clear the reference after attempting disconnect
+                            self._mqtt = None
 
                     # Build MQTT client parameters conditionally
                     # umqtt.robust supports ssl/ssl_params, but mqtt(openMV) does not have ssl param
@@ -261,6 +286,14 @@ class MQTTHandler:
                         "keepalive": 300,
                     }
 
+                    # Add socket timeout for OpenMV (SSL handshake can take time)
+                    # Some MQTT implementations support socket_timeout parameter
+                    if is_openmv() and mqtt_ssl:
+                        # OpenMV MQTT client may support socket_timeout
+                        # This helps prevent ETIMEDOUT during SSL handshake
+                        # Try adding socket_timeout - if client doesn't support it, will fail during construction
+                        mqtt_params["socket_timeout"] = 30  # 30 second timeout for SSL handshake
+
                     # Add SSL parameters if SSL is enabled
                     # ssl_params is needed for both umqtt.robust and mqtt(openMV) module
                     if mqtt_ssl:
@@ -270,24 +303,22 @@ class MQTTHandler:
                         # ssl_params is needed for both implementations
                         mqtt_params["ssl_params"] = {"server_hostname": mqtt_host}
 
-                    self._mqtt = MQTTClient(**mqtt_params)
+                    # Try to create MQTT client - if socket_timeout is not supported, retry without it
+                    try:
+                        self._mqtt = MQTTClient(**mqtt_params)
+                    except TypeError:
+                        # socket_timeout parameter not supported, remove it and try again
+                        if "socket_timeout" in mqtt_params:
+                            del mqtt_params["socket_timeout"]
+                            self._mqtt = MQTTClient(**mqtt_params)
+                        else:
+                            raise  # Re-raise if it's a different TypeError
 
                     self._mqtt.set_callback(self._on_message)
 
                     if self.debug:
                         print("Attempting to connect...")
-                    
-                    # On OpenMV, the first SSL connection can be slow due to SSL stack initialization
-                    # The SSL context needs to be created and certificates loaded on first use
-                    # This can cause ETIMEDOUT on the first attempt, but retries succeed
-                    # Add a small delay before first attempt to allow SSL context to initialize
-                    if attempt == 0 and not MQTT_SSL_ENABLED and mqtt_ssl:
-                        # OpenMV's mqtt module - first SSL connection needs warm-up time
-                        # Give SSL stack a moment to initialize before attempting connection
-                        if self.debug:
-                            print("   (OpenMV: Allowing SSL stack initialization time...)")
-                        time.sleep(2)  # 2 seconds for SSL context initialization
-                    
+
                     gc.collect()
                     self._mqtt.connect()
                     gc.collect()
@@ -311,15 +342,7 @@ class MQTTHandler:
                         print(f"MQTT connection error (Attempt {attempt + 1}): {mqtt_err}")
                         print(f"   Host: {mqtt_host}, Port: {mqtt_port}")
                     self.connected = False
-                    time.sleep(2**attempt)
-                    continue
-                except Exception as e:
-                    if self.debug:
-                        print(f"Unexpected MQTT connection error (Attempt {attempt + 1}): {e}")
-                        print(f"   Error type: {type(e).__name__}")
-                        print(f"   Host: {mqtt_host}, Port: {mqtt_port}")
-                    self.connected = False
-                    time.sleep(2**attempt)
+                    # Don't sleep here - delay is handled before the retry attempt
                     continue
 
             self._mqtt = None
@@ -355,13 +378,7 @@ class MQTTHandler:
 
     def _on_message(self, topic, msg):
         try:
-            # Only decode topic if debug is enabled (performance optimization)
-            if self.debug:
-                topic_str = topic.decode('utf-8')
             msg_str = msg.decode('utf-8')
-
-            if self.debug:
-                print(f"Received message on topic {topic_str}: {msg_str}")
 
             try:
                 message_data = json.loads(msg_str)
@@ -385,8 +402,6 @@ class MQTTHandler:
         self.connected = False
         try:
             if self._mqtt:
-                if self.debug:
-                    print("Disconnecting existing MQTT client")
                 self._mqtt.disconnect()
         except Exception as close_err:
             if self.debug:
@@ -452,7 +467,7 @@ class MQTTHandler:
                 # For strings, estimate is just string length + JSON quotes
                 msg_str = str(msg)
                 estimated_size = len(msg_str) + 10  # String + JSON overhead
-            
+
             if (current_size + estimated_size > self._max_batch_size or
                 len(current_chunk) >= self._max_messages_per_batch):
                 if current_chunk:
@@ -476,18 +491,12 @@ class MQTTHandler:
             return False
 
         if not messages:
-            if self.debug:
-                print("No messages to send in batch")
             return True
 
         chunks = self._chunk_messages(messages)
 
         success_count = 0
         connection_error_count = 0
-        total_messages = len(messages)
-
-        if self.debug:
-            print(f"Sending batch of {total_messages} messages in {len(chunks)} chunks")
 
         for chunk_idx, chunk in enumerate(chunks):
             try:
@@ -507,27 +516,9 @@ class MQTTHandler:
                 if self.debug:
                     print(f"Error sending batch chunk {chunk_idx}: {e}")
                 connection_error_count += 1
-
-        if self.debug:
-            if success_count == total_messages:
-                print(f"Batch send complete: {success_count}/{total_messages} messages sent successfully")
-            elif connection_error_count > 0:
-                print(f"Batch send failed: {connection_error_count} connection errors")
-            else:
-                print(f"Batch send partial: {success_count}/{total_messages} messages sent")
-
         return connection_error_count == 0
 
     def check_messages(self):
-        """
-        Check for incoming MQTT messages. This is a non-blocking call that
-        processes any pending messages by triggering the callback function.
-        With umqtt.robust, automatic reconnection is handled internally.
-        
-        Returns:
-            True if the check was successful (messages are processed via callback)
-            False if there was an error or MQTT client not initialized
-        """
         if self._mqtt is None:
             if self.debug:
                 print("MQTT client not initialized - cannot check messages")
@@ -550,13 +541,9 @@ class MQTTHandler:
     def cleanup(self):
         try:
             if self._mqtt:
-                if self.debug:
-                    print("Disconnecting MQTT client")
                 self._mqtt.disconnect()
                 self._mqtt = None
             self.connected = False
-            if self.debug:
-                print("MQTT cleanup completed")
         except Exception as e:
             if self.debug:
                 print(f"Error during MQTT cleanup: {e}")

@@ -2,23 +2,18 @@ import json
 import time
 import os
 
+# Import OpenMV detection from utils
+from .utils.util_helpers import is_openmv
+
 def get_root_dir():
     """
     Detect the root directory for the filesystem.
     OpenMV uses /flash, regular MicroPython uses /.
     """
-    # Try to detect OpenMV by checking if /flash exists and is accessible
-    try:
-        os.statvfs("/flash")
-        # If /flash exists, check if /lib exists in /flash (OpenMV structure)
-        try:
-            os.listdir("/flash/lib")
-            return "/flash"
-        except OSError:
-            # /flash exists but /lib might not be there yet, still use /flash
-            return "/flash"
-    except OSError:
-        # /flash doesn't exist, use regular MicroPython root
+    # Use proper OpenMV detection instead of checking for /flash directory
+    if is_openmv():
+        return "/flash"
+    else:
         return "/"
 
 # Get root directory once at module load

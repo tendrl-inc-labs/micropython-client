@@ -1,5 +1,5 @@
 from .util_helpers import free, network_connect, \
-    gen_key, encrypt_str, decrypt_str, ntp_time, convert, make_message, iso8601
+    gen_key, encrypt_str, decrypt_str, ntp_time, convert, make_message, iso8601, is_openmv
 
 __all__ = (
     'free',
@@ -10,5 +10,6 @@ __all__ = (
     'ntp_time',
     'convert',
     'make_message',
-    'iso8601'
+    'iso8601',
+    'is_openmv'
 )

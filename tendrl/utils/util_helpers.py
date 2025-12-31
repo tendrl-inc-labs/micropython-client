@@ -181,6 +181,17 @@ def t_convert(t):
         return f"{round((t / 1000), 1)} Seconds"
     return f"{round((t / 60000), 1)} Minutes"
 
+def is_openmv():
+    """
+    Detect if running on an OpenMV board.
+    Uses sys.implementation._machine to check for 'OpenMV' string.
+    """
+    try:
+        import sys
+        return 'OpenMV' in sys.implementation._machine
+    except (AttributeError, ImportError):
+        return False
+
 def free(bytes_only=False):
     import gc
     import os
@@ -190,7 +201,11 @@ def free(bytes_only=False):
     mem_free = gc.mem_free()
     mem_used = gc.mem_alloc()
     mem_total = mem_free + mem_used
-    fs_stat = os.statvfs("/")
+
+    # Use correct root directory based on platform
+    # OpenMV uses /flash, regular MicroPython uses /
+    root_dir = "/flash" if is_openmv() else "/"
+    fs_stat = os.statvfs(root_dir)
     block_size = fs_stat[0]
     total_blocks = fs_stat[2]
     free_blocks = fs_stat[3]
