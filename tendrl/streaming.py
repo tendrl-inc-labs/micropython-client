@@ -535,11 +535,16 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                                 # Normal delay - single sleep (most common case)
                                 await asyncio.sleep(delay_ms / 1000.0)
                         else:
-                            # Behind schedule - skip sleep to catch up
-                            # Prevents accumulating delays at any FPS
+                            # Behind schedule - but still maintain minimum spacing to prevent bursts
+                            # This prevents overwhelming the network with back-to-back frames
+                            # which can make congestion worse. Minimum delay is 10% of frame budget
+                            # (e.g., ~6.6ms for 15 FPS, ~5ms for 20 FPS) to allow network to process
                             if perf_data:
                                 perf_data['behind_count'] += 1
-                            await asyncio.sleep(0)  # Yield but don't delay
+                            # Always maintain minimum spacing to prevent network bursts
+                            # This creates more stable streaming even when network is slow
+                            min_delay_ms = max(1, int(frame_ms * 0.1))  # At least 1ms, or 10% of budget
+                            await asyncio.sleep(min_delay_ms / 1000.0)
 
                     # Print performance statistics periodically (only if debug enabled)
                     if debug and frame_count % 60 == 0:  # Every 60 frames (~2.4s at 25 FPS)
