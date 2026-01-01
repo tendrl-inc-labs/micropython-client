@@ -31,7 +31,7 @@ async def main():
     # - JPEG format
     # - Quality 60 (excellent balance of quality and performance)
     # - 1500ms frame skip for camera stabilization
-    # 
+
     # Defaults: target_fps=20, quality=60, framesize="QVGA" (optimized for smooth video)
     # You can adjust these if needed:
     # - Lower quality (45-50) = smaller files, faster transmission, more headroom
@@ -41,10 +41,10 @@ async def main():
     # - Smaller framesize ("QQVGA") = smaller files, faster transmission
     # - Larger framesize ("VGA") = better image quality, larger files, less headroom
     client.start_streaming()  # Uses defaults: FPS=20, quality=60, framesize="QVGA"
-    
+
     # Example: Use larger resolution for better image quality
     # client.start_streaming(framesize="VGA", quality=45, target_fps=15)
-    
+
     # Example: Use smaller resolution for very slow networks
     # client.start_streaming(framesize="QQVGA", quality=50, target_fps=15)
 
