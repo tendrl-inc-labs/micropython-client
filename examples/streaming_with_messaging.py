@@ -76,11 +76,11 @@ async def main():
     await asyncio.sleep(2)
 
     # Start streaming - Option 1: Simplest usage (uses default camera settings)
-    # Camera is automatically set up with optimized settings (VGA, quality 50)
-    # Defaults: target_fps=15, quality=50 (optimized for consistent performance)
+    # Camera is automatically set up with optimized settings (QVGA, quality 60)
+    # Defaults: target_fps=20, quality=60, framesize="QVGA" (optimized for smooth video)
     print("\n📹 Starting video stream...")
     try:
-        stream_task = client.start_streaming()  # Uses defaults: FPS=15, quality=50
+        stream_task = client.start_streaming()  # Uses defaults: FPS=20, quality=60, framesize="QVGA"
         print("✅ Streaming started as background task")
     except ImportError:
         print("⚠️ Camera module not available - skipping streaming")
@@ -88,16 +88,16 @@ async def main():
     
     # Option 2: Adjust quality and FPS for your network
     # stream_task = client.start_streaming(
-    #     target_fps=20,              # Higher FPS for better networks
-    #     quality=55                   # Higher quality for better image quality
+    #     target_fps=15,              # Lower FPS for slower networks
+    #     quality=50                   # Lower quality for more headroom
     # )
     
     # Option 3: Custom capture function (most control)
     # setup_camera()  # Setup camera first with your custom settings
     # stream_task = client.start_streaming(
     #     capture_frame_func=capture_frame,
-    #     target_fps=15,  # Use default or adjust as needed
-    #     quality=50      # Note: quality parameter not used with custom capture
+    #     target_fps=20,  # Use default or adjust as needed
+    #     quality=60      # Note: quality parameter not used with custom capture
     # )
 
     # Example: Publish some data while streaming
@@ -150,14 +150,14 @@ def simple_example():
     client.start()
 
     # Start streaming - simplest usage (uses default camera settings)
-    # Camera is automatically set up with optimized settings (VGA, quality 50)
-    # Defaults: target_fps=15, quality=50 (optimized for consistent performance)
+    # Camera is automatically set up with optimized settings (QVGA, quality 60)
+    # Defaults: target_fps=20, quality=60, framesize="QVGA" (optimized for smooth video)
     client.start_streaming()  # Uses defaults
     
     # Or adjust for your network:
     # client.start_streaming(
-    #     target_fps=20,      # Higher FPS for better networks
-    #     quality=55            # Higher quality for better image quality
+    #     target_fps=15,      # Lower FPS for slower networks
+    #     quality=50            # Lower quality for more headroom
     # )
 
     print("✅ Streaming and messaging are running!")

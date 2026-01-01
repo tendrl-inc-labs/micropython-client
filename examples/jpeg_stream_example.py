@@ -5,7 +5,7 @@ This example demonstrates the simplest way to start streaming video
 from an OpenMV camera to the Tendrl platform.
 
 Key Points:
-- Camera is automatically configured with optimized settings (QVGA, JPEG, quality 50)
+- Camera is automatically configured with optimized settings (QVGA, JPEG, quality 60)
 - Performance stats are printed every 60 frames when debug=True
 - Streaming runs as a background task in async mode
 """
@@ -29,24 +29,24 @@ async def main():
     # Start streaming - camera is automatically configured with optimized settings:
     # - QVGA (320x240) resolution (default)
     # - JPEG format
-    # - Quality 50 (good balance of quality and performance)
+    # - Quality 60 (excellent balance of quality and performance)
     # - 1500ms frame skip for camera stabilization
     # 
-    # Defaults: target_fps=15, quality=50, framesize="QVGA"
+    # Defaults: target_fps=20, quality=60, framesize="QVGA" (optimized for smooth video)
     # You can adjust these if needed:
-    # - Lower quality (45-50) = smaller files, faster transmission
-    # - Higher quality (55-60) = better image quality, larger files
+    # - Lower quality (45-50) = smaller files, faster transmission, more headroom
+    # - Higher quality (65-70) = better image quality, larger files, less headroom
     # - Lower FPS (10-15) = less bandwidth, more stable on slower networks
-    # - Higher FPS (18-20) = smoother video, requires better network
+    # - Higher FPS (22-25) = smoother video, requires better network
     # - Smaller framesize ("QQVGA") = smaller files, faster transmission
-    # - Larger framesize ("VGA") = better image quality, larger files
-    client.start_streaming()  # Uses defaults: FPS=15, quality=50, framesize="QVGA"
+    # - Larger framesize ("VGA") = better image quality, larger files, less headroom
+    client.start_streaming()  # Uses defaults: FPS=20, quality=60, framesize="QVGA"
     
     # Example: Use larger resolution for better image quality
-    # client.start_streaming(framesize="VGA", quality=55, target_fps=18)
+    # client.start_streaming(framesize="VGA", quality=45, target_fps=15)
     
     # Example: Use smaller resolution for very slow networks
-    # client.start_streaming(framesize="QQVGA", quality=45, target_fps=10)
+    # client.start_streaming(framesize="QQVGA", quality=50, target_fps=15)
 
     # With debug=True, performance stats will be printed every 60 frames
     # showing: FPS, send times, frame sizes, network bandwidth, etc.

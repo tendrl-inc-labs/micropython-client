@@ -732,7 +732,7 @@ async def main():
     await asyncio.sleep(2)
     
     # Start streaming - simplest usage (uses default camera settings)
-    # Camera automatically set up with optimized settings (VGA, quality 50)
+    # Camera automatically set up with optimized settings (QVGA, quality 60)
     client.start_streaming()
     
     # Keep running
@@ -767,8 +767,8 @@ Start streaming JPEG frames to the server.
 ```python
 stream_task = client.start_streaming(
     capture_frame_func=None,      # Custom capture function (optional)
-    target_fps=15,                 # Target frames per second (default: 15, max: 30)
-    quality=50,                    # JPEG quality 0-100 (default: 50, optimized for consistent performance)
+    target_fps=20,                 # Target frames per second (default: 20, max: 30)
+    quality=60,                    # JPEG quality 0-100 (default: 60, optimized for smooth video)
     framesize="QVGA",              # Frame size: "QQVGA" (160x120), "QVGA" (320x240), or "VGA" (640x480). Default: "QVGA"
     stream_duration=-1             # Duration in seconds (-1 = indefinite, default)
 )
@@ -835,8 +835,8 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Simplest usage - uses default camera settings (QVGA, quality 50)
-    # Defaults: target_fps=15, quality=50, framesize="QVGA" (optimized for consistent performance)
+    # Simplest usage - uses default camera settings (QVGA, quality 60)
+    # Defaults: target_fps=20, quality=60, framesize="QVGA" (optimized for smooth video)
     client.start_streaming()
     
     # Stream indefinitely (default)
@@ -858,16 +858,16 @@ async def main():
     await asyncio.sleep(2)
     
     # Adjust quality, FPS, and framesize for your use case
-    # Defaults: target_fps=15, quality=50, framesize="QVGA"
-    # Lower quality (45-50) = smaller files, faster transmission
-    # Higher quality (55-60) = better image quality, larger files
+    # Defaults: target_fps=20, quality=60, framesize="QVGA"
+    # Lower quality (45-50) = smaller files, faster transmission, more headroom
+    # Higher quality (65-70) = better image quality, larger files, less headroom
     # Lower FPS (10-15) = less bandwidth, more stable on slower networks
-    # Higher FPS (18-20) = smoother video, requires better network
+    # Higher FPS (22-25) = smoother video, requires better network
     # Smaller framesize ("QQVGA") = smaller files, faster transmission
-    # Larger framesize ("VGA") = better image quality, larger files
+    # Larger framesize ("VGA") = better image quality, larger files, less headroom
     client.start_streaming(
-        target_fps=20,      # Higher FPS for better networks
-        quality=55,          # Higher quality for better image quality
+        target_fps=15,      # Lower FPS for slower networks
+        quality=50,          # Lower quality for more headroom
         framesize="VGA"      # Larger resolution for better image quality
     )
     
@@ -906,8 +906,8 @@ async def main():
     setup_camera()
     client.start_streaming(
         capture_frame_func=capture_frame,
-        target_fps=15,
-        quality=50  # Note: quality parameter not used with custom capture
+        target_fps=20,
+        quality=60  # Note: quality parameter not used with custom capture
     )
     
     await asyncio.sleep(60)
@@ -954,7 +954,7 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Start streaming (uses defaults: target_fps=15, quality=50)
+    # Start streaming (uses defaults: target_fps=20, quality=60, framesize="QVGA")
     client.start_streaming()
     
     # Publish messages while streaming
@@ -1000,11 +1000,12 @@ The streaming implementation uses cooperative multitasking with optimized intern
 ### Streaming Best Practices
 
 1. **Use Async Mode**: Streaming requires `mode="async"`
-2. **Quality Settings**: Default quality 50 provides consistent performance. Lower (45-50) = smaller files, faster transmission. Higher (55-60) = better image quality.
-3. **FPS Settings**: Lower FPS (15-20) = less bandwidth, more stable on slower networks
-4. **Debug Mode**: Enable `debug=True` to see performance stats every 60 frames and identify bottlenecks
-5. **Test Network**: Verify your network can handle the target FPS and quality
-6. **Test Under Load**: Verify streaming + messaging work together in your use case
+2. **Quality Settings**: Default quality 60 provides excellent balance. Lower (45-50) = smaller files, faster transmission, more headroom. Higher (65-70) = better image quality, larger files, less headroom.
+3. **FPS Settings**: Default 20 FPS provides smooth video. Lower FPS (10-15) = less bandwidth, more stable on slower networks. Higher FPS (22-25) = smoother video, requires better network.
+4. **Resolution Settings**: Default QVGA (320x240) provides excellent balance. QQVGA (160x120) = smaller files, faster transmission. VGA (640x480) = better image quality, larger files, less headroom.
+5. **Debug Mode**: Enable `debug=True` to see performance stats every 60 frames and identify bottlenecks
+6. **Test Network**: Verify your network can handle the target FPS, quality, and resolution
+7. **Test Under Load**: Verify streaming + messaging work together in your use case
 
 ### Streaming Limitations
 
