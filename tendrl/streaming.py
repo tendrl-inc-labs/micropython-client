@@ -186,8 +186,6 @@ async def _connect_to_server(server_host, port, debug=False):
 
     s = None
     try:
-        if debug:
-            print(f"Streaming: Resolving {server_host}:{port}...")
         # Yield before blocking DNS lookup to allow other tasks to run
         await asyncio.sleep(0)
         s = socket.socket()
@@ -206,7 +204,7 @@ async def _connect_to_server(server_host, port, debug=False):
         await asyncio.sleep(0)  # Yield after SSL handshake
 
         if debug:
-            print(f"Streaming: Connected to server!")
+            print("Streaming: Connected to server")
         return s
     except Exception as e:
         if debug:
@@ -359,24 +357,14 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
             # This is important so the server knows the client is online before streaming starts
             # Only wait if MQTT is enabled (mqtt is not None)
             if client_instance.mqtt is not None and not client_instance.mqtt.connected:
-                if debug:
-                    print("Waiting for MQTT connection before starting stream...")
                 # Wait for MQTT connection with periodic checks and timeout
                 max_wait_time = 30  # Maximum 30 seconds to wait for MQTT
                 wait_start = time.ticks_ms()
                 while client_instance.mqtt is not None and not client_instance.mqtt.connected:
                     elapsed = time.ticks_diff(time.ticks_ms(), wait_start)
                     if elapsed > max_wait_time * 1000:
-                        if debug:
-                            print(f"MQTT connection timeout after {max_wait_time}s - starting stream anyway")
                         break
                     await asyncio.sleep(0.5)  # Check every 500ms
-                if client_instance.mqtt and client_instance.mqtt.connected:
-                    if debug:
-                        print("MQTT connected - starting stream...")
-                elif debug:
-                    print("Starting stream without MQTT connection...")
-
             try:
                 # Connect to server
                 try:
@@ -416,6 +404,7 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                 # Adaptive frame dropping - track recent performance to skip frames when network is slow
                 recent_send_times = []  # Track last 5 send times
                 max_recent_times = 5
+                recent_send_sum = 0  # Track running sum to avoid sum() overhead
                 frames_dropped = 0
 
                 # Performance statistics - only collected if debug enabled to avoid overhead
@@ -437,10 +426,12 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
 
                     # Adaptive frame dropping: skip frames if we're way behind
                     # Only check if we have enough data and it's worth checking
+                    # Optimized: use running sum instead of sum() every frame
                     should_skip = False
-                    if recent_send_times and len(recent_send_times) >= 3:
+                    if len(recent_send_times) >= 3:
                         # Quick check: if recent average is very high, skip every other frame
-                        avg_recent_send = sum(recent_send_times) / len(recent_send_times)
+                        # Use cached sum instead of recalculating
+                        avg_recent_send = recent_send_sum / len(recent_send_times)
                         if avg_recent_send > frame_ms * 2.5:
                             should_skip = (frame_count % 2 == 0)  # Skip every other frame
 
@@ -458,8 +449,6 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                         frames_dropped += 1
                         if perf_data:
                             perf_data['frames_dropped'] = frames_dropped
-                        if debug:
-                            print(f"Skipping frame {frame_count} (network too slow)")
                         # Still increment frame count and do pacing
                         frame_count += 1
                         # Fast path pacing for skipped frames
@@ -476,11 +465,15 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                     )
 
                     # Track recent send times for adaptive dropping (only if successful)
+                    # Optimized: maintain running sum to avoid sum() overhead
                     if success:
                         send_duration = time.ticks_diff(time.ticks_ms(), t_send_start)
                         recent_send_times.append(send_duration)
+                        recent_send_sum += send_duration
                         if len(recent_send_times) > max_recent_times:
-                            recent_send_times.pop(0)
+                            # Remove oldest value from sum when list is full
+                            removed = recent_send_times.pop(0)
+                            recent_send_sum -= removed
 
                     if not success:
                         if consecutive_errors >= max_consecutive_errors:

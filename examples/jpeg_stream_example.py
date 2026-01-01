@@ -5,7 +5,7 @@ This example demonstrates the simplest way to start streaming video
 from an OpenMV camera to the Tendrl platform.
 
 Key Points:
-- Camera is automatically configured with optimized settings (VGA, JPEG, quality 55)
+- Camera is automatically configured with optimized settings (VGA, JPEG, quality 50)
 - Performance stats are printed every 60 frames when debug=True
 - Streaming runs as a background task in async mode
 """

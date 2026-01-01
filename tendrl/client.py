@@ -651,8 +651,6 @@ class Client:
                 # Use asyncio.create_task() directly (same as in start() method)
                 task = asyncio.create_task(coro)
             self._tasks.append(task)
-            if self.debug:
-                print(f"Background task created: {type(coro).__name__}")
             return task
         except RuntimeError as e:
             if self.debug:
@@ -757,7 +755,7 @@ class Client:
                 capture_frame_func = default_capture_frame
                 if self.debug:
                     print("Using default camera capture function")
-  
+
             except ImportError:
                 raise ImportError(
                     "Camera capture function required. Either provide capture_frame_func, "
@@ -813,12 +811,6 @@ class Client:
                 task = self.add_background_task(stream_coro)
                 # Store reference for stop control
                 self._streaming_task = task
-                if self.debug:
-                    if task:
-                        duration_msg = f" for {stream_duration}s" if stream_duration > 0 else " (indefinite)"
-                        print(f"Streaming task created and added to background tasks{duration_msg}")
-                    else:
-                        print("Streaming task creation failed - check event loop")
                 return task
             except Exception as e:
                 if self.debug:
@@ -927,6 +919,7 @@ class Client:
             print(f"Starting Tendrl Client in {self.mode} mode...")
         self.client_enabled = False
         if self.mode == "sync":
+            time.sleep(3)
             self._connect()
             if MACHINE_AVAILABLE and self._timer_id <= 3:
                 self._app_timer = machine.Timer(self._timer_id)
@@ -938,6 +931,7 @@ class Client:
             if watchdog and MACHINE_AVAILABLE:
                 self._wdt = machine.WDT(timeout=min(max(watchdog, 1), 60) * 1000)
         else:
+            asyncio.sleep(3)
             self._connect()
             self._stop_event.clear()
             self._tasks = []
@@ -948,8 +942,6 @@ class Client:
                         print("Created client task on user-provided event loop")
                 else:
                     main_task = asyncio.create_task(self._async_callback())
-                    if self.debug:
-                        print("Created client task on current event loop")
                 self._tasks.append(main_task)
                 if watchdog and MACHINE_AVAILABLE:
                     try:
