@@ -273,7 +273,7 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Start streaming - simplest usage (default camera settings)
+    # Start streaming - simplest usage (camera automatically configured with optimized settings)
     client.start_streaming()
     
     # Keep running
@@ -304,7 +304,6 @@ The SDK provides several initialization options:
 | `offline_storage` | `bool` | `True` | Enable offline message storage (file-based, [see warning below](#file-based-storage-warning)) |
 | `managed` | `bool` | `True` | Enable managed mode (WiFi, queuing, offline storage) |
 | `event_loop` | `asyncio.AbstractEventLoop` | `None` | Event loop for async mode (integrates with user applications) |
-| `enable_mqtt` | `bool` | `True` | Enable MQTT messaging (set False for streaming-only use cases) |
 
 > **Mode and Event Loop**: Given MicroPython only has a single event loop, having the sync mode allows using one of the hardware timers to circumvent this limitation for necesarry non-blocking, background processing. This is the default mode for ease of use.
 >
@@ -724,7 +723,6 @@ async def main():
     client = Client(
         mode="async",        # REQUIRED: Streaming only works in async mode
         debug=True,
-        enable_mqtt=True,    # Enable messaging (default) or False for streaming-only
     )
     
     # Start the client
@@ -734,7 +732,7 @@ async def main():
     await asyncio.sleep(2)
     
     # Start streaming - simplest usage (uses default camera settings)
-    # Camera automatically set up with defaults (VGA, quality 60)
+    # Camera automatically set up with optimized settings (VGA, quality 50)
     client.start_streaming()
     
     # Keep running
@@ -769,17 +767,9 @@ Start streaming JPEG frames to the server.
 ```python
 stream_task = client.start_streaming(
     capture_frame_func=None,      # Custom capture function (optional)
-    chunk_size=2048,               # Chunk size for sending (default: 2048)
-    yield_every_bytes=8*1024,     # Yield after sending this many bytes (default: 8KB)
-    yield_ms=1,                    # Milliseconds to sleep when yielding (default: 1)
-    target_fps=25,                 # Target frames per second (default: 25, max: 30)
-    gc_interval=250,               # Run GC every N frames (default: 250, ~10s at 25 FPS)
-    reconnect_delay=1000,          # Reconnect delay in ms (default: 1000, 1 second for faster recovery)
-    yield_interval=3,              # Yield every N frames (default: 3)
-    camera_config=None,            # Camera configuration dict (optional)
-    camera_setup_func=None,        # Custom camera setup function (optional)
-    stream_duration=-1,            # Duration in seconds (-1 = indefinite, default)
-    debug=None                     # Enable debug output (default: uses client.debug)
+    target_fps=15,                 # Target frames per second (default: 15, max: 30)
+    quality=50,                    # JPEG quality 0-100 (default: 50, optimized for consistent performance)
+    stream_duration=-1             # Duration in seconds (-1 = indefinite, default)
 )
 ```
 
@@ -787,18 +777,20 @@ stream_task = client.start_streaming(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `capture_frame_func` | `callable` | `None` | Function that returns JPEG bytes. If `None` and `sensor` module available, uses default capture. |
-| `camera_config` | `dict` | `None` | Camera settings: `framesize`, `quality`, `pixformat`, `skip_frames_time` |
-| `camera_setup_func` | `callable` | `None` | Custom function to set up camera. If provided, used instead of `camera_config`. |
-| `chunk_size` | `int` | `2048` | Size of chunks to send over network |
-| `yield_every_bytes` | `int` | `8*1024` | Yield to event loop after sending this many bytes |
-| `yield_ms` | `int` | `1` | Milliseconds to sleep when yielding |
-| `target_fps` | `int` | `25` | Target frames per second (maximum: 30, enforced by server) |
-| `gc_interval` | `int` | `250` | Run garbage collection every N frames (~10 seconds at 25 FPS) |
-| `reconnect_delay` | `int` | `1000` | Milliseconds to wait before reconnecting on error (default: 1 second for faster recovery) |
-| `yield_interval` | `int` | `3` | Yield to event loop every N frames (0 to disable) |
+| `capture_frame_func` | `callable` | `None` | Function that returns JPEG bytes. If `None` and `sensor` module available, camera is automatically configured with optimized settings (VGA, JPEG, quality, skip_frames). |
+| `target_fps` | `int` | `15` | Target frames per second (maximum: 30, enforced by server). Default 15 provides consistent performance. |
+| `quality` | `int` | `50` | JPEG quality 0-100 (lower = smaller files, faster transmission). Default 50 is optimized for consistent performance. |
 | `stream_duration` | `int` | `-1` | Duration in seconds. `-1` = stream indefinitely until stopped |
-| `debug` | `bool` | `None` | Enable debug output (defaults to `client.debug` if `None`) |
+
+**Camera Configuration:**
+
+When `capture_frame_func` is `None` and the `sensor` module is available, the camera is automatically configured with these optimized settings:
+- **Format**: JPEG (`sensor.JPEG`)
+- **Resolution**: VGA (640x480) (`sensor.VGA`)
+- **Quality**: Set via `quality` parameter (default: 50)
+- **Stabilization**: 1500ms frame skip for camera stabilization
+
+These settings are optimized for streaming performance and can be adjusted via the `quality` parameter. For custom camera configuration, provide your own `capture_frame_func`.
 
 **Returns:** Background task (async mode) or `None` (sync mode)
 
@@ -841,7 +833,8 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Simplest usage - uses default camera settings (VGA, quality 60)
+    # Simplest usage - uses default camera settings (VGA, quality 50)
+    # Defaults: target_fps=15, quality=50 (optimized for consistent performance)
     client.start_streaming()
     
     # Stream indefinitely (default)
@@ -851,11 +844,10 @@ async def main():
 asyncio.run(main())
 ```
 
-#### Example 2: Configurable Camera Settings
+#### Example 2: Adjust Quality and FPS
 
 ```python
 import asyncio
-import sensor
 from tendrl import Client
 
 async def main():
@@ -863,16 +855,15 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Configure camera settings
+    # Adjust quality and FPS for your use case
+    # Defaults: target_fps=15, quality=50 (optimized for consistent performance)
+    # Lower quality (45-50) = smaller files, faster transmission
+    # Higher quality (55-60) = better image quality, larger files
+    # Lower FPS (10-15) = less bandwidth, more stable on slower networks
+    # Higher FPS (18-20) = smoother video, requires better network
     client.start_streaming(
-        camera_config={
-            "framesize": sensor.VGA,      # 640x480
-            "quality": 60,                # JPEG quality 0-100 (lower = less memory)
-            "pixformat": sensor.JPEG,     # JPEG format
-            "skip_frames_time": 1500      # Stabilization time in ms
-        },
-        target_fps=25,
-        debug=True
+        target_fps=20,      # Higher FPS for better networks
+        quality=55           # Higher quality for better image quality
     )
     
     await asyncio.sleep(60)
@@ -889,11 +880,11 @@ import sensor
 from tendrl import Client
 
 def setup_camera():
-    """Custom camera setup"""
+    """Custom camera setup with specific settings"""
     sensor.reset()
     sensor.set_pixformat(sensor.JPEG)
-    sensor.set_framesize(sensor.VGA)
-    sensor.set_quality(60)
+    sensor.set_framesize(sensor.QVGA)  # Smaller resolution
+    sensor.set_quality(50)              # Lower quality
     sensor.skip_frames(time=1500)
 
 def capture_frame():
@@ -906,11 +897,12 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Use custom capture function
+    # Setup camera first, then provide custom capture function
     setup_camera()
     client.start_streaming(
         capture_frame_func=capture_frame,
-        target_fps=25
+        target_fps=15,
+        quality=50  # Note: quality parameter not used with custom capture
     )
     
     await asyncio.sleep(60)
@@ -952,14 +944,13 @@ async def main():
     client = Client(
         mode="async",
         debug=True,
-        enable_mqtt=True,  # Enable messaging (default)
     )
     
     client.start()
     await asyncio.sleep(2)
     
-    # Start streaming
-    client.start_streaming(target_fps=25)
+    # Start streaming (uses defaults: target_fps=15, quality=50)
+    client.start_streaming()
     
     # Publish messages while streaming
     @client.tether(tags=["sensors"])
@@ -976,40 +967,39 @@ async def main():
 asyncio.run(main())
 ```
 
-### Camera Configuration Options
+### Camera Configuration
 
-When using `camera_config` parameter:
+When using the default camera (no `capture_frame_func` provided), the camera is automatically configured with these optimized settings:
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `framesize` | `int` | `sensor.VGA` | Frame size (e.g., `sensor.VGA`, `sensor.QVGA`) |
-| `quality` | `int` | `60` | JPEG quality 0-100 (lower = less memory, faster) |
-| `pixformat` | `int` | `sensor.JPEG` | Pixel format (typically `sensor.JPEG`) |
-| `skip_frames_time` | `int` | `1500` | Time in ms to skip frames for stabilization |
+- **Format**: JPEG (`sensor.JPEG`)
+- **Resolution**: VGA (640x480) (`sensor.VGA`)
+- **Quality**: Configurable via `quality` parameter (default: 50)
+- **Stabilization**: 1500ms frame skip for camera stabilization
+
+These settings are optimized for streaming performance. The `quality` parameter allows you to balance image quality vs. file size and transmission speed:
+- **Lower quality (45-50)**: Smaller files, faster transmission, good for slower networks (default: 50)
+- **Higher quality (60-70)**: Better image quality, larger files, requires better network
+
+For custom camera configurations, provide your own `capture_frame_func` that handles camera setup and frame capture.
 
 ### Streaming Configuration
 
-The streaming implementation uses cooperative multitasking:
+The streaming implementation uses cooperative multitasking with optimized internal parameters:
 
-- **Cooperative Yielding**: Yields every 8KB sent and every 3 frames
-- **Memory Management**: Automatic GC every 250 frames (~10 seconds at 25 FPS)
+- **Cooperative Yielding**: Yields periodically to allow messaging operations
+- **Memory Management**: Automatic GC at optimized intervals
 - **Frame Pacing**: Accurate frame timing with proper delays
 - **Error Recovery**: Automatic reconnection on network errors
-
-**Default Parameters:**
-- `chunk_size=2048`: Balanced throughput and responsiveness
-- `yield_every_bytes=8*1024`: Frequent yielding for messaging cooperation
-- `yield_interval=3`: Yields every 3 frames
-- `target_fps=25`: Good balance of quality and performance
-- `gc_interval=250`: Prevents large automatic GC freezes
+- **Performance Monitoring**: Performance stats printed when `debug=True` (every 60 frames)
 
 ### Streaming Best Practices
 
 1. **Use Async Mode**: Streaming requires `mode="async"`
-2. **Quality Settings**: Lower quality (50-60) = less memory usage, faster processing
-3. **Frame Size**: Smaller frames (QVGA) = faster, less bandwidth
-4. **Monitor Memory**: Use `gc.mem_free()` to monitor available memory
-5. **Test Under Load**: Verify streaming + messaging work together in your use case
+2. **Quality Settings**: Default quality 50 provides consistent performance. Lower (45-50) = smaller files, faster transmission. Higher (55-60) = better image quality.
+3. **FPS Settings**: Lower FPS (15-20) = less bandwidth, more stable on slower networks
+4. **Debug Mode**: Enable `debug=True` to see performance stats every 60 frames and identify bottlenecks
+5. **Test Network**: Verify your network can handle the target FPS and quality
+6. **Test Under Load**: Verify streaming + messaging work together in your use case
 
 ### Streaming Limitations
 

@@ -41,7 +41,7 @@ class Client:
     def __init__(self,mode="sync",debug=False,timer=0,freq=3,callback=None,
         check_msg_rate=5,max_batch_size=15,db_page_size=1024,watchdog=0,
         send_heartbeat=True, client_db=True, client_db_in_memory=True,
-        offline_storage=True, managed=True, event_loop=None, enable_mqtt=True):
+        offline_storage=True, managed=True, event_loop=None):
         if mode not in ["sync", "async"]:
             raise ValueError("Mode must be either 'sync' or 'async'")
         if mode == "async" and not ASYNCIO_AVAILABLE:
@@ -68,16 +68,14 @@ class Client:
             if not managed
             else NetworkManager(self.config, debug)
         )
-        # MQTT is optional - can be disabled for streaming-only use cases
-        if enable_mqtt:
-            try:
-                self.mqtt = MQTTHandler(self.config, debug, callback)
-            except (ImportError, Exception) as e:
-                if debug:
-                    print(f"Warning: MQTT handler initialization failed: {e}")
-                    print("  Continuing without MQTT (streaming will still work)")
-                self.mqtt = None
-        else:
+        # Always attempt to initialize MQTT (required for messaging and streaming online status)
+        # If initialization fails, continue gracefully without MQTT
+        try:
+            self.mqtt = MQTTHandler(self.config, debug, callback)
+        except (ImportError, Exception) as e:
+            if debug:
+                print(f"Warning: MQTT handler initialization failed: {e}")
+                print("  Continuing without MQTT - messaging and streaming online status will be unavailable")
             self.mqtt = None
         self.queue = QueueManager(
             max_batch=max_batch_size,
@@ -724,11 +722,8 @@ class Client:
             return async_wrapped_function if is_async else sync_wrapped_function
         return wrapper
 
-    def start_streaming(self, capture_frame_func=None, chunk_size=2048,
-                       yield_every_bytes=8*1024, yield_ms=1, target_fps=25,
-                       gc_interval=250, reconnect_delay=1000, yield_interval=3,
-                       camera_config=None, camera_setup_func=None,
-                       stream_duration=-1, debug=None):
+    def start_streaming(self, capture_frame_func=None, target_fps=15,
+                       quality=50, stream_duration=-1):
 
         try:
             from .streaming import start_jpeg_stream
@@ -739,38 +734,20 @@ class Client:
                 "or manually install tendrl/streaming.py"
             )
 
-        # Use self.debug if debug not explicitly provided (None means use self.debug)
-        stream_debug = self.debug if debug is None else debug
-
         # Handle camera setup and default capture function
         if capture_frame_func is None:
             # Try to use default camera capture if sensor module is available
             try:
                 import sensor
 
-                # Setup camera if config or setup function provided
-                if camera_setup_func:
-                    if stream_debug:
-                        print("Setting up camera with custom setup function...")
-                    camera_setup_func()
-                elif camera_config:
-                    if stream_debug:
-                        print(f"Setting up camera with config: {camera_config}")
-                    sensor.reset()
-                    sensor.set_pixformat(camera_config.get("pixformat", sensor.JPEG))
-                    sensor.set_framesize(camera_config.get("framesize", sensor.VGA))
-                    sensor.set_quality(camera_config.get("quality", 60))
-                    skip_frames_time = camera_config.get("skip_frames_time", 1500)
-                    sensor.skip_frames(time=skip_frames_time)
-                else:
-                    # Default camera setup if no config provided
-                    if stream_debug:
-                        print("Setting up camera with default settings...")
-                    sensor.reset()
-                    sensor.set_pixformat(sensor.JPEG)
-                    sensor.set_framesize(sensor.VGA)
-                    sensor.set_quality(60)
-                    sensor.skip_frames(time=1500)
+                # Setup camera with optimized static settings
+                if self.debug:
+                    print(f"Setting up camera: VGA, JPEG, Quality={quality}")
+                sensor.reset()
+                sensor.set_pixformat(sensor.JPEG)
+                sensor.set_framesize(sensor.VGA)
+                sensor.set_quality(quality)
+                sensor.skip_frames(time=1500)
 
                 # Create default capture function
                 def default_capture_frame():
@@ -778,7 +755,7 @@ class Client:
                     return img.bytearray()
 
                 capture_frame_func = default_capture_frame
-                if stream_debug:
+                if self.debug:
                     print("Using default camera capture function")
   
             except ImportError:
@@ -787,36 +764,42 @@ class Client:
                     "or ensure sensor module is available for default camera support."
                 )
 
+        # Streaming requires MQTT to show entity as online before streaming starts
+        # If MQTT failed to initialize, warn but allow streaming to continue
+        if self.mqtt is None:
+            if self.debug:
+                print("Warning: MQTT not available - streaming will continue but entity may not show as online")
+
         # Ensure client is started and MQTT is connected before streaming
         # This is required for online entity status that is set when MQTT connects
         if not self.client_enabled:
-            if stream_debug:
+            if self.debug:
                 print("Client not started - attempting to start and connect...")
             # Try to connect if not already connected
             if self.mode == "async":
                 # In async mode, we need to ensure connection is established
                 # Check if we need to wait for connection
                 if not self.mqtt or not self.mqtt.connected:
-                    if stream_debug:
+                    if self.debug:
                         print("MQTT not connected - will wait for connection in stream loop")
             else:
                 # In sync mode, try to connect now
                 if not self._connect():
-                    if stream_debug:
+                    if self.debug:
                         print("Failed to connect - streaming will retry in stream loop")
         elif self.mqtt and not self.mqtt.connected:
-            if stream_debug:
+            if self.debug:
                 print("MQTT not connected - will wait for connection in stream loop")
 
-        if stream_debug:
-            print(f"Starting streaming with FPS={target_fps}, chunk_size={chunk_size}")
+        if self.debug:
+            print(f"Starting streaming with FPS={target_fps}, quality={quality}")
 
         stream_loop_func = start_jpeg_stream(
             self,
             capture_frame_func,
-            chunk_size, yield_every_bytes, yield_ms,
-            target_fps, gc_interval,
-            reconnect_delay, yield_interval, stream_duration, stream_debug
+            target_fps,
+            stream_duration,
+            self.debug
         )
 
         # Automatically add to background tasks if in async mode
@@ -830,7 +813,7 @@ class Client:
                 task = self.add_background_task(stream_coro)
                 # Store reference for stop control
                 self._streaming_task = task
-                if stream_debug:
+                if self.debug:
                     if task:
                         duration_msg = f" for {stream_duration}s" if stream_duration > 0 else " (indefinite)"
                         print(f"Streaming task created and added to background tasks{duration_msg}")
@@ -838,7 +821,7 @@ class Client:
                         print("Streaming task creation failed - check event loop")
                 return task
             except Exception as e:
-                if stream_debug:
+                if self.debug:
                     print(f"Error calling stream_loop_func() or creating task: {e}")
                     try:
                         import sys

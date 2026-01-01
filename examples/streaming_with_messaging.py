@@ -57,7 +57,6 @@ async def main():
     client = Client(
         mode="async",           # Must be async for streaming
         debug=True,              # Enable debug output
-        enable_mqtt=True,        # Enable messaging (default)
         send_heartbeat=True,     # Send periodic heartbeats
     )
 
@@ -77,45 +76,28 @@ async def main():
     await asyncio.sleep(2)
 
     # Start streaming - Option 1: Simplest usage (uses default camera settings)
-    # Camera is automatically set up with defaults (VGA, quality 60)
+    # Camera is automatically set up with optimized settings (VGA, quality 50)
+    # Defaults: target_fps=15, quality=50 (optimized for consistent performance)
     print("\n📹 Starting video stream...")
     try:
-        stream_task = client.start_streaming(
-            target_fps=25,              # Target 25 FPS
-            debug=True                  # Enable streaming debug
-        )
+        stream_task = client.start_streaming()  # Uses defaults: FPS=15, quality=50
         print("✅ Streaming started as background task")
     except ImportError:
         print("⚠️ Camera module not available - skipping streaming")
         stream_task = None
     
-    # Option 2: Configurable usage with camera_config
+    # Option 2: Adjust quality and FPS for your network
     # stream_task = client.start_streaming(
-    #     camera_config={
-    #         "framesize": sensor.VGA,  # 640x480
-    #         "quality": 60,            # JPEG quality (lower = less memory pressure)
-    #         "skip_frames_time": 1500  # Stabilization time in ms
-    #     },
-    #     target_fps=25,
-    #     chunk_size=2048,
-    #     yield_every_bytes=8*1024,
-    #     yield_ms=1,
-    #     debug=True
+    #     target_fps=20,              # Higher FPS for better networks
+    #     quality=55                   # Higher quality for better image quality
     # )
     
-    # Option 3: Custom setup function
+    # Option 3: Custom capture function (most control)
+    # setup_camera()  # Setup camera first with your custom settings
     # stream_task = client.start_streaming(
-    #     camera_setup_func=setup_camera,
-    #     target_fps=25,
-    #     debug=True
-    # )
-    
-    # Option 4: Custom capture function (most control)
-    # setup_camera()  # Setup camera first
-    # stream_task = client.start_streaming(
-    #     capture_frame,
-    #     target_fps=25,
-    #     debug=True
+    #     capture_frame_func=capture_frame,
+    #     target_fps=15,  # Use default or adjust as needed
+    #     quality=50      # Note: quality parameter not used with custom capture
     # )
 
     # Example: Publish some data while streaming
@@ -168,14 +150,14 @@ def simple_example():
     client.start()
 
     # Start streaming - simplest usage (uses default camera settings)
-    # Camera is automatically set up with defaults (VGA, quality 60)
-    client.start_streaming(target_fps=25, debug=True)
+    # Camera is automatically set up with optimized settings (VGA, quality 50)
+    # Defaults: target_fps=15, quality=50 (optimized for consistent performance)
+    client.start_streaming()  # Uses defaults
     
-    # Or use configurable option:
+    # Or adjust for your network:
     # client.start_streaming(
-    #     camera_config={"framesize": sensor.VGA, "quality": 60},
-    #     target_fps=25,
-    #     debug=True
+    #     target_fps=20,      # Higher FPS for better networks
+    #     quality=55            # Higher quality for better image quality
     # )
 
     print("✅ Streaming and messaging are running!")
