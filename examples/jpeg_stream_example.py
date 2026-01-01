@@ -5,7 +5,7 @@ This example demonstrates the simplest way to start streaming video
 from an OpenMV camera to the Tendrl platform.
 
 Key Points:
-- Camera is automatically configured with optimized settings (VGA, JPEG, quality 50)
+- Camera is automatically configured with optimized settings (QVGA, JPEG, quality 50)
 - Performance stats are printed every 60 frames when debug=True
 - Streaming runs as a background task in async mode
 """
@@ -27,18 +27,26 @@ async def main():
     await asyncio.sleep(5)
 
     # Start streaming - camera is automatically configured with optimized settings:
-    # - VGA (640x480) resolution
+    # - QVGA (320x240) resolution (default)
     # - JPEG format
     # - Quality 50 (good balance of quality and performance)
     # - 1500ms frame skip for camera stabilization
     # 
-    # Defaults: target_fps=15, quality=50 (optimized for consistent performance)
+    # Defaults: target_fps=15, quality=50, framesize="QVGA"
     # You can adjust these if needed:
     # - Lower quality (45-50) = smaller files, faster transmission
     # - Higher quality (55-60) = better image quality, larger files
     # - Lower FPS (10-15) = less bandwidth, more stable on slower networks
     # - Higher FPS (18-20) = smoother video, requires better network
-    client.start_streaming()  # Uses defaults: FPS=15, quality=50
+    # - Smaller framesize ("QQVGA") = smaller files, faster transmission
+    # - Larger framesize ("VGA") = better image quality, larger files
+    client.start_streaming()  # Uses defaults: FPS=15, quality=50, framesize="QVGA"
+    
+    # Example: Use larger resolution for better image quality
+    # client.start_streaming(framesize="VGA", quality=55, target_fps=18)
+    
+    # Example: Use smaller resolution for very slow networks
+    # client.start_streaming(framesize="QQVGA", quality=45, target_fps=10)
 
     # With debug=True, performance stats will be printed every 60 frames
     # showing: FPS, send times, frame sizes, network bandwidth, etc.

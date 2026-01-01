@@ -769,6 +769,7 @@ stream_task = client.start_streaming(
     capture_frame_func=None,      # Custom capture function (optional)
     target_fps=15,                 # Target frames per second (default: 15, max: 30)
     quality=50,                    # JPEG quality 0-100 (default: 50, optimized for consistent performance)
+    framesize="QVGA",              # Frame size: "QQVGA" (160x120), "QVGA" (320x240), or "VGA" (640x480). Default: "QVGA"
     stream_duration=-1             # Duration in seconds (-1 = indefinite, default)
 )
 ```
@@ -777,16 +778,17 @@ stream_task = client.start_streaming(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `capture_frame_func` | `callable` | `None` | Function that returns JPEG bytes. If `None` and `sensor` module available, camera is automatically configured with optimized settings (VGA, JPEG, quality, skip_frames). |
+| `capture_frame_func` | `callable` | `None` | Function that returns JPEG bytes. If `None` and `sensor` module available, camera is automatically configured with optimized settings (QVGA, JPEG, quality, skip_frames). |
 | `target_fps` | `int` | `15` | Target frames per second (maximum: 30, enforced by server). Default 15 provides consistent performance. |
 | `quality` | `int` | `50` | JPEG quality 0-100 (lower = smaller files, faster transmission). Default 50 is optimized for consistent performance. |
+| `framesize` | `str` | `"QVGA"` | Frame size: `"QQVGA"` (160x120), `"QVGA"` (320x240, default), or `"VGA"` (640x480). |
 | `stream_duration` | `int` | `-1` | Duration in seconds. `-1` = stream indefinitely until stopped |
 
 **Camera Configuration:**
 
 When `capture_frame_func` is `None` and the `sensor` module is available, the camera is automatically configured with these optimized settings:
 - **Format**: JPEG (`sensor.JPEG`)
-- **Resolution**: VGA (640x480) (`sensor.VGA`)
+- **Resolution**: Set via `framesize` parameter (default: QVGA/320x240). Options: `"QQVGA"` (160x120), `"QVGA"` (320x240, default), `"VGA"` (640x480)
 - **Quality**: Set via `quality` parameter (default: 50)
 - **Stabilization**: 1500ms frame skip for camera stabilization
 
@@ -833,8 +835,8 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Simplest usage - uses default camera settings (VGA, quality 50)
-    # Defaults: target_fps=15, quality=50 (optimized for consistent performance)
+    # Simplest usage - uses default camera settings (QVGA, quality 50)
+    # Defaults: target_fps=15, quality=50, framesize="QVGA" (optimized for consistent performance)
     client.start_streaming()
     
     # Stream indefinitely (default)
@@ -855,15 +857,18 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Adjust quality and FPS for your use case
-    # Defaults: target_fps=15, quality=50 (optimized for consistent performance)
+    # Adjust quality, FPS, and framesize for your use case
+    # Defaults: target_fps=15, quality=50, framesize="QVGA"
     # Lower quality (45-50) = smaller files, faster transmission
     # Higher quality (55-60) = better image quality, larger files
     # Lower FPS (10-15) = less bandwidth, more stable on slower networks
     # Higher FPS (18-20) = smoother video, requires better network
+    # Smaller framesize ("QQVGA") = smaller files, faster transmission
+    # Larger framesize ("VGA") = better image quality, larger files
     client.start_streaming(
         target_fps=20,      # Higher FPS for better networks
-        quality=55           # Higher quality for better image quality
+        quality=55,          # Higher quality for better image quality
+        framesize="VGA"      # Larger resolution for better image quality
     )
     
     await asyncio.sleep(60)

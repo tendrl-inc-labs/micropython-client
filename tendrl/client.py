@@ -721,7 +721,7 @@ class Client:
         return wrapper
 
     def start_streaming(self, capture_frame_func=None, target_fps=15,
-                       quality=50, stream_duration=-1):
+                       quality=50, framesize="QVGA", stream_duration=-1):
 
         try:
             from .streaming import start_jpeg_stream
@@ -738,12 +738,28 @@ class Client:
             try:
                 import sensor
 
+                # Validate and map framesize parameter
+                # Default is QVGA, but allow None for backward compatibility
+                if framesize is None or framesize.upper() == "QVGA":
+                    framesize = sensor.QVGA
+                    framesize_name = "QVGA"
+                elif framesize.upper() == "QQVGA":
+                    framesize = sensor.QQVGA
+                    framesize_name = "QQVGA"
+                elif framesize.upper() == "VGA":
+                    framesize = sensor.VGA
+                    framesize_name = "VGA"
+                else:
+                    raise ValueError(
+                        f"Invalid framesize '{framesize}'. Must be 'QQVGA', 'QVGA', or 'VGA'"
+                    )
+
                 # Setup camera with optimized static settings
                 if self.debug:
-                    print(f"Setting up camera: VGA, JPEG, Quality={quality}")
+                    print(f"Setting up camera: {framesize_name}, JPEG, Quality={quality}")
                 sensor.reset()
                 sensor.set_pixformat(sensor.JPEG)
-                sensor.set_framesize(sensor.VGA)
+                sensor.set_framesize(framesize)
                 sensor.set_quality(quality)
                 sensor.skip_frames(time=1500)
 
