@@ -76,11 +76,11 @@ async def main():
     await asyncio.sleep(2)
 
     # Start streaming - Option 1: Simplest usage (uses default camera settings)
-    # Camera is automatically set up with optimized settings (QVGA, quality 70)
-    # Defaults: target_fps=15, quality=70, framesize="QVGA" (optimized for quality and stability)
+    # Camera is automatically set up with optimized settings (QVGA, quality 80)
+    # Defaults: target_fps=13, quality=80, framesize="QVGA" (optimized for quality and stability)
     print("\n📹 Starting video stream...")
     try:
-        stream_task = client.start_streaming()  # Uses defaults: FPS=15, quality=70, framesize="QVGA"
+        stream_task = client.start_streaming()  # Uses defaults: FPS=13, quality=80, framesize="QVGA"
         print("✅ Streaming started as background task")
     except ImportError:
         print("⚠️ Camera module not available - skipping streaming")
@@ -96,8 +96,8 @@ async def main():
     # setup_camera()  # Setup camera first with your custom settings
     # stream_task = client.start_streaming(
     #     capture_frame_func=capture_frame,
-    #     target_fps=15,  # Use default or adjust as needed
-    #     quality=70      # Note: quality parameter not used with custom capture
+    #     target_fps=13,  # Use default or adjust as needed
+    #     quality=80      # Note: quality parameter not used with custom capture
     # )
 
     # Example: Publish some data while streaming
@@ -150,8 +150,8 @@ def simple_example():
     client.start()
 
     # Start streaming - simplest usage (uses default camera settings)
-    # Camera is automatically set up with optimized settings (QVGA, quality 70)
-    # Defaults: target_fps=15, quality=70, framesize="QVGA" (optimized for quality and stability)
+    # Camera is automatically set up with optimized settings (QVGA, quality 80)
+    # Defaults: target_fps=13, quality=80, framesize="QVGA" (optimized for quality and stability)
     client.start_streaming()  # Uses defaults
     
     # Or adjust for your network:
