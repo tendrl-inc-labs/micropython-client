@@ -342,6 +342,19 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
         start_time = time.ticks_ms() if duration_ms else None
         # Cache frame delay in seconds to avoid repeated division (performance optimization)
         frame_s = frame_ms / 1000.0 if frame_ms > 0 else 0.1
+        
+        # Pre-calculate sleep constants for multi-stage sleep optimization
+        # These avoid repeated calculations and use multiplication instead of division
+        if frame_ms > 0:
+            min_delay_ms = max(1, int(frame_ms * 0.1))  # 10% of frame budget, at least 1ms
+            min_delay_s = min_delay_ms * 0.001  # Pre-calculate in seconds
+            chunk_25ms = 0.025  # 25ms chunk size in seconds
+            chunk_50ms = 0.05   # 50ms chunk size in seconds
+        else:
+            min_delay_ms = 1
+            min_delay_s = 0.001
+            chunk_25ms = 0.025
+            chunk_50ms = 0.05
 
         # Validate capture function once before streaming - fail fast with clear error
         await validate_capture_function(capture_frame_func)
@@ -513,38 +526,52 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                     if yield_check_interval > 0 and (frame_count % yield_check_interval) == 0:
                         await asyncio.sleep(0)  # Yield to event loop
 
-                    # Frame pacing - dynamically handle any FPS efficiently
+                    # Frame pacing - optimized multi-stage sleep with pre-calculated constants
                     # This ensures consistent timing regardless of target FPS (5-30 FPS)
+                    # Uses multiplication instead of division and caches time.ticks_ms() call
                     if frame_ms > 0:
-                        elapsed = time.ticks_diff(time.ticks_ms(), t0)
+                        # Cache time.ticks_ms() call to avoid double call overhead
+                        t_now = time.ticks_ms()
+                        elapsed = time.ticks_diff(t_now, t0)
                         delay_ms = frame_ms - elapsed
 
                         if delay_ms > 0:
-                            # Ahead of schedule - sleep to maintain frame rate
-                            # For long delays (low FPS < 10), chunk sleep to stay responsive
-                            if delay_ms > 100:  # Very low FPS (< 10 FPS)
-                                # Sleep in 50ms chunks to allow other tasks to run
-                                # This prevents long blocking sleeps that feel unresponsive
-                                chunks = int(delay_ms / 50)
-                                remainder = delay_ms % 50
+                            # Ahead of schedule - multi-stage sleep for optimal responsiveness
+                            # Stage 1: Very small delays (<=20ms) - single sleep, minimal overhead
+                            if delay_ms <= 20:
+                                await asyncio.sleep(delay_ms * 0.001)
+                            # Stage 2: Small delays (20-50ms) - single sleep, typical at 20 FPS
+                            elif delay_ms <= 50:
+                                await asyncio.sleep(delay_ms * 0.001)
+                            # Stage 3: Medium delays (50-100ms) - 25ms chunks for better responsiveness
+                            # Common at 15 FPS, allows other tasks to run more frequently
+                            elif delay_ms <= 100:
+                                chunk_size = 25
+                                chunks = int(delay_ms / chunk_size)
+                                remainder = delay_ms % chunk_size
                                 for _ in range(chunks):
-                                    await asyncio.sleep(0.05)  # 50ms chunks
+                                    await asyncio.sleep(chunk_25ms)  # Pre-calculated constant
                                 if remainder > 0:
-                                    await asyncio.sleep(remainder / 1000.0)
+                                    await asyncio.sleep(remainder * 0.001)
+                            # Stage 4: Large delays (>100ms) - 50ms chunks for very low FPS
                             else:
-                                # Normal delay - single sleep (most common case)
-                                await asyncio.sleep(delay_ms / 1000.0)
+                                chunk_size = 50
+                                chunks = int(delay_ms / chunk_size)
+                                remainder = delay_ms % chunk_size
+                                for _ in range(chunks):
+                                    await asyncio.sleep(chunk_50ms)  # Pre-calculated constant
+                                if remainder > 0:
+                                    await asyncio.sleep(remainder * 0.001)
                         else:
-                            # Behind schedule - but still maintain minimum spacing to prevent bursts
+                            # Behind schedule - maintain minimum spacing to prevent bursts
                             # This prevents overwhelming the network with back-to-back frames
                             # which can make congestion worse. Minimum delay is 10% of frame budget
                             # (e.g., ~6.6ms for 15 FPS, ~5ms for 20 FPS) to allow network to process
                             if perf_data:
                                 perf_data['behind_count'] += 1
                             # Always maintain minimum spacing to prevent network bursts
-                            # This creates more stable streaming even when network is slow
-                            min_delay_ms = max(1, int(frame_ms * 0.1))  # At least 1ms, or 10% of budget
-                            await asyncio.sleep(min_delay_ms / 1000.0)
+                            # Uses pre-calculated min_delay_s to avoid repeated calculation
+                            await asyncio.sleep(min_delay_s)
 
                     # Print performance statistics periodically (only if debug enabled)
                     if debug and frame_count % 60 == 0:  # Every 60 frames (~2.4s at 25 FPS)

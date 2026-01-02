@@ -70,11 +70,11 @@ class Client:
         )
         # Always attempt to initialize MQTT (required for messaging and streaming online status)
         # If initialization fails, continue gracefully without MQTT
-        try:
-            self.mqtt = MQTTHandler(self.config, debug, callback)
-        except (ImportError, Exception) as e:
-            if debug:
-                print(f"Warning: MQTT handler initialization failed: {e}")
+            try:
+                self.mqtt = MQTTHandler(self.config, debug, callback)
+            except (ImportError, Exception) as e:
+                if debug:
+                    print(f"Warning: MQTT handler initialization failed: {e}")
                 print("  Continuing without MQTT - messaging and streaming online status will be unavailable")
             self.mqtt = None
         self.queue = QueueManager(
@@ -720,8 +720,8 @@ class Client:
             return async_wrapped_function if is_async else sync_wrapped_function
         return wrapper
 
-    def start_streaming(self, capture_frame_func=None, target_fps=20,
-                       quality=60, framesize="QVGA", stream_duration=-1):
+    def start_streaming(self, capture_frame_func=None, target_fps=15,
+                       quality=70, framesize="QVGA", stream_duration=-1):
 
         try:
             from .streaming import start_jpeg_stream
@@ -757,11 +757,11 @@ class Client:
                 # Setup camera with optimized static settings
                 if self.debug:
                     print(f"Setting up camera: {framesize_name}, JPEG, Quality={quality}")
-                sensor.reset()
-                sensor.set_pixformat(sensor.JPEG)
+                    sensor.reset()
+                    sensor.set_pixformat(sensor.JPEG)
                 sensor.set_framesize(framesize)
                 sensor.set_quality(quality)
-                sensor.skip_frames(time=1500)
+                    sensor.skip_frames(time=1500)
 
                 # Create default capture function
                 def default_capture_frame():
@@ -771,7 +771,7 @@ class Client:
                 capture_frame_func = default_capture_frame
                 if self.debug:
                     print("Using default camera capture function")
-
+  
             except ImportError:
                 raise ImportError(
                     "Camera capture function required. Either provide capture_frame_func, "
