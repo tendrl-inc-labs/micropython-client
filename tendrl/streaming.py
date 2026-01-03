@@ -315,7 +315,7 @@ async def validate_capture_function(capture_frame_func):
             f"Please ensure the function is properly configured and returns bytes/bytearray."
         ) from e
 
-def start_jpeg_stream(client_instance, capture_frame_func, target_fps=20,
+def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                      stream_duration=-1, debug=False):
     # Always collect performance data to identify network bottlenecks
     # Validate target_fps against server maximum
@@ -445,16 +445,29 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=20,
                 while True:
                     t0 = time.ticks_ms()
 
-                    # Adaptive frame dropping: skip frames if we're way behind
-                    # Only check if we have enough data and it's worth checking
+                    # Adaptive frame dropping: skip frames if network is congested
+                    # More aggressive dropping to handle network congestion spikes
                     # Optimized: use running sum instead of sum() every frame
                     should_skip = False
-                    if len(recent_send_times) >= 3:
-                        # Quick check: if recent average is very high, skip every other frame
-                        # Use cached sum instead of recalculating
+                    if len(recent_send_times) >= 2:
+                        # Check recent average send time
                         avg_recent_send = recent_send_sum / len(recent_send_times)
-                        if avg_recent_send > frame_ms * 2.5:
-                            should_skip = (frame_count % 2 == 0)  # Skip every other frame
+                        # Also check the most recent send time for immediate response to spikes
+                        last_send_time = recent_send_times[-1] if recent_send_times else 0
+                        
+                        # Moderate congestion: skip every other frame (2x budget)
+                        # Severe congestion: skip 2 out of 3 frames (4x budget)
+                        # Extreme congestion: skip 3 out of 4 frames (6x budget)
+                        # Raised thresholds slightly to avoid premature dropping while still protecting against severe congestion
+                        if avg_recent_send > frame_ms * 6 or last_send_time > frame_ms * 6:
+                            # Extreme: skip 3 out of 4 frames
+                            should_skip = (frame_count % 4 != 0)
+                        elif avg_recent_send > frame_ms * 4 or last_send_time > frame_ms * 4:
+                            # Severe: skip 2 out of 3 frames
+                            should_skip = (frame_count % 3 != 0)
+                        elif avg_recent_send > frame_ms * 2 or last_send_time > frame_ms * 2:
+                            # Moderate: skip every other frame
+                            should_skip = (frame_count % 2 == 0)
 
                     # Capture frame - use fast path (skip validation after first frame)
                     try:

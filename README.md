@@ -767,7 +767,7 @@ Start streaming JPEG frames to the server.
 ```python
 stream_task = client.start_streaming(
     capture_frame_func=None,      # Custom capture function (optional)
-    target_fps=20,                 # Target frames per second (default: 20, max: 30)
+    target_fps=15,                 # Target frames per second (default: 15, max: 30)
     quality=70,                    # JPEG quality 0-100 (default: 70, optimized for quality and stability)
     framesize="QVGA",              # Frame size: "QQVGA" (160x120), "QVGA" (320x240), or "VGA" (640x480). Default: "QVGA"
     stream_duration=-1             # Duration in seconds (-1 = indefinite, default)
@@ -779,7 +779,7 @@ stream_task = client.start_streaming(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `capture_frame_func` | `callable` | `None` | Function that returns JPEG bytes. If `None` and `sensor` module available, camera is automatically configured with optimized settings (QVGA, JPEG, quality, skip_frames). |
-| `target_fps` | `int` | `20` | Target frames per second (maximum: 30, enforced by server). Default 20 provides consistent performance and stability. |
+| `target_fps` | `int` | `15` | Target frames per second (maximum: 30, enforced by server). Default 15 provides consistent performance and stability with better network headroom. |
 | `quality` | `int` | `70` | JPEG quality 0-100 (lower = smaller files, faster transmission). Default 70 provides excellent balance of quality and stability. |
 | `framesize` | `str` | `"QVGA"` | Frame size: `"QQVGA"` (160x120), `"QVGA"` (320x240, default), or `"VGA"` (640x480). |
 | `stream_duration` | `int` | `-1` | Duration in seconds. `-1` = stream indefinitely until stopped |
@@ -836,7 +836,7 @@ async def main():
     await asyncio.sleep(2)
     
     # Simplest usage - uses default camera settings (QVGA, quality 70)
-    # Defaults: target_fps=20, quality=70, framesize="QVGA" (optimized for quality and stability)
+    # Defaults: target_fps=15, quality=70, framesize="QVGA" (optimized for quality and stability)
     client.start_streaming()
     
     # Stream indefinitely (default)
@@ -858,7 +858,7 @@ async def main():
     await asyncio.sleep(2)
     
     # Adjust quality, FPS, and framesize for your use case
-    # Defaults: target_fps=20, quality=70, framesize="QVGA"
+    # Defaults: target_fps=15, quality=70, framesize="QVGA"
     # Lower quality (45-70) = smaller files, faster transmission, more headroom
     # Higher quality (85-90) = better image quality, larger files, less headroom
     # Lower FPS (10-12) = less bandwidth, more stable on slower networks
@@ -954,7 +954,7 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Start streaming (uses defaults: target_fps=20, quality=70, framesize="QVGA")
+    # Start streaming (uses defaults: target_fps=15, quality=70, framesize="QVGA")
     client.start_streaming()
     
     # Publish messages while streaming
@@ -1001,7 +1001,7 @@ The streaming implementation uses cooperative multitasking with optimized intern
 
 1. **Use Async Mode**: Streaming requires `mode="async"`
 2. **Quality Settings**: Default quality 70 provides excellent balance of quality and stability. Lower (45-70) = smaller files, faster transmission, more headroom. Higher (85-90) = better image quality, larger files, less headroom.
-3. **FPS Settings**: Default 20 FPS provides smooth video with maximum stability. Lower FPS (10-12) = less bandwidth, more stable on slower networks. Higher FPS (15-25) = smoother video, requires better network.
+3. **FPS Settings**: Default 15 FPS provides smooth video with maximum stability and network headroom. Lower FPS (10-12) = less bandwidth, more stable on slower networks. Higher FPS (20-25) = smoother video, requires better network.
 4. **Resolution Settings**: Default QVGA (320x240) provides excellent balance. QQVGA (160x120) = smaller files, faster transmission. VGA (640x480) = better image quality, larger files, less headroom.
 5. **Debug Mode**: Enable `debug=True` to see performance stats every 60 frames and identify bottlenecks
 6. **Test Network**: Verify your network can handle the target FPS, quality, and resolution

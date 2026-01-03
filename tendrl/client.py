@@ -720,7 +720,7 @@ class Client:
             return async_wrapped_function if is_async else sync_wrapped_function
         return wrapper
 
-    def start_streaming(self, capture_frame_func=None, target_fps=20,
+    def start_streaming(self, capture_frame_func=None, target_fps=15,
                        quality=70, framesize="QVGA", stream_duration=-1):
 
         try:
