@@ -41,7 +41,7 @@ Before installing the Tendrl SDK, you need to have MicroPython installed on your
 - **Minimum RAM:** 150 KB total (125 KB absolute minimum)
 - **Client Runtime:** ~57 KB steady state (without streaming active)
 - **Streaming Runtime:** Additional ~20-40 KB when streaming (for JPEG buffers and socket buffers)
-- **Flash Storage:** ~100 KB (minimal package) or ~172 KB (full package with database)
+- **Flash Storage:** ~94 KB (minimal package) or ~131 KB (full package with database)
 
 ## Installation
 
@@ -59,8 +59,8 @@ The Tendrl SDK offers two installation options to suit different device constrai
 | **Offline Storage** | ✅ | ❌ |
 | **TTL Management** | ✅ | ❌ |
 | **Rich Queries** | ✅ | ❌ |
-| **Flash Storage** | ~172KB | ~100KB |
-| **Flash Storage (with streaming)** | ~207KB | ~135KB |
+| **Flash Storage** | ~131KB | ~94KB |
+| **Flash Storage (with streaming)** | ~164KB | ~127KB |
 
  &nbsp;
 
@@ -83,7 +83,7 @@ The Tendrl SDK offers two installation options to suit different device constrai
 
 - Streaming requires a separate installation step
 - Works with both minimal and full installations
-- Adds ~35KB to flash storage
+- Adds ~33KB to flash storage
 - See installation instructions below
 
 ### Option 1: Using the Install Script (Recommended)
@@ -104,7 +104,7 @@ INSTALL_DB = False  # Minimal installation without database
 
 INSTALL_STREAMING = True   # Set to True to include JPEG streaming support (optional)
 # OR
-INSTALL_STREAMING = False  # Default: No streaming (saves ~35KB flash)
+INSTALL_STREAMING = False  # Default: No streaming (saves ~33KB flash)
 ```
 
 **Step 3**: Run the script on your device:
@@ -161,7 +161,7 @@ mip.install("github:tendrl-inc-labs/micropython-client/package-streaming.json", 
 **Manual Installation:**
 - Copy `tendrl/streaming.py` to `/lib/tendrl/streaming.py` on your device
 
-**Note:** Streaming adds ~35KB to flash storage and works with both minimal and full installations.
+**Note:** Streaming adds ~33KB to flash storage and works with both minimal and full installations.
 
 ### Client Configuration by Installation Type
 
@@ -767,8 +767,8 @@ Start streaming JPEG frames to the server.
 ```python
 stream_task = client.start_streaming(
     capture_frame_func=None,      # Custom capture function (optional)
-    target_fps=13,                 # Target frames per second (default: 13, max: 30)
-    quality=80,                    # JPEG quality 0-100 (default: 80, optimized for quality and stability)
+    target_fps=20,                 # Target frames per second (default: 20, max: 30)
+    quality=70,                    # JPEG quality 0-100 (default: 70, optimized for quality and stability)
     framesize="QVGA",              # Frame size: "QQVGA" (160x120), "QVGA" (320x240), or "VGA" (640x480). Default: "QVGA"
     stream_duration=-1             # Duration in seconds (-1 = indefinite, default)
 )
@@ -779,8 +779,8 @@ stream_task = client.start_streaming(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `capture_frame_func` | `callable` | `None` | Function that returns JPEG bytes. If `None` and `sensor` module available, camera is automatically configured with optimized settings (QVGA, JPEG, quality, skip_frames). |
-| `target_fps` | `int` | `13` | Target frames per second (maximum: 30, enforced by server). Default 13 provides consistent performance and stability. |
-| `quality` | `int` | `80` | JPEG quality 0-100 (lower = smaller files, faster transmission). Default 80 provides excellent balance of quality and stability. |
+| `target_fps` | `int` | `20` | Target frames per second (maximum: 30, enforced by server). Default 20 provides consistent performance and stability. |
+| `quality` | `int` | `70` | JPEG quality 0-100 (lower = smaller files, faster transmission). Default 70 provides excellent balance of quality and stability. |
 | `framesize` | `str` | `"QVGA"` | Frame size: `"QQVGA"` (160x120), `"QVGA"` (320x240, default), or `"VGA"` (640x480). |
 | `stream_duration` | `int` | `-1` | Duration in seconds. `-1` = stream indefinitely until stopped |
 
@@ -789,7 +789,7 @@ stream_task = client.start_streaming(
 When `capture_frame_func` is `None` and the `sensor` module is available, the camera is automatically configured with these optimized settings:
 - **Format**: JPEG (`sensor.JPEG`)
 - **Resolution**: Set via `framesize` parameter (default: QVGA/320x240). Options: `"QQVGA"` (160x120), `"QVGA"` (320x240, default), `"VGA"` (640x480)
-- **Quality**: Set via `quality` parameter (default: 50)
+- **Quality**: Set via `quality` parameter (default: 70)
 - **Stabilization**: 1500ms frame skip for camera stabilization
 
 These settings are optimized for streaming performance and can be adjusted via the `quality` parameter. For custom camera configuration, provide your own `capture_frame_func`.
@@ -835,8 +835,8 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Simplest usage - uses default camera settings (QVGA, quality 80)
-    # Defaults: target_fps=13, quality=80, framesize="QVGA" (optimized for quality and stability)
+    # Simplest usage - uses default camera settings (QVGA, quality 70)
+    # Defaults: target_fps=20, quality=70, framesize="QVGA" (optimized for quality and stability)
     client.start_streaming()
     
     # Stream indefinitely (default)
@@ -858,7 +858,7 @@ async def main():
     await asyncio.sleep(2)
     
     # Adjust quality, FPS, and framesize for your use case
-    # Defaults: target_fps=13, quality=80, framesize="QVGA"
+    # Defaults: target_fps=20, quality=70, framesize="QVGA"
     # Lower quality (45-70) = smaller files, faster transmission, more headroom
     # Higher quality (85-90) = better image quality, larger files, less headroom
     # Lower FPS (10-12) = less bandwidth, more stable on slower networks
@@ -954,7 +954,7 @@ async def main():
     client.start()
     await asyncio.sleep(2)
     
-    # Start streaming (uses defaults: target_fps=13, quality=80, framesize="QVGA")
+    # Start streaming (uses defaults: target_fps=20, quality=70, framesize="QVGA")
     client.start_streaming()
     
     # Publish messages while streaming
@@ -978,12 +978,12 @@ When using the default camera (no `capture_frame_func` provided), the camera is 
 
 - **Format**: JPEG (`sensor.JPEG`)
 - **Resolution**: QVGA (320x240) (`sensor.QVGA`)
-- **Quality**: Configurable via `quality` parameter (default: 80)
+- **Quality**: Configurable via `quality` parameter (default: 70)
 - **Stabilization**: 1500ms frame skip for camera stabilization
 
 These settings are optimized for streaming performance. The `quality` parameter allows you to balance image quality vs. file size and transmission speed:
 - **Lower quality (45-70)**: Smaller files, faster transmission, good for slower networks
-- **Higher quality (85-90)**: Better image quality, larger files, requires better network (default: 80)
+- **Higher quality (85-90)**: Better image quality, larger files, requires better network (default: 70)
 
 For custom camera configurations, provide your own `capture_frame_func` that handles camera setup and frame capture.
 
@@ -1000,8 +1000,8 @@ The streaming implementation uses cooperative multitasking with optimized intern
 ### Streaming Best Practices
 
 1. **Use Async Mode**: Streaming requires `mode="async"`
-2. **Quality Settings**: Default quality 80 provides excellent balance of quality and stability. Lower (45-70) = smaller files, faster transmission, more headroom. Higher (85-90) = better image quality, larger files, less headroom.
-3. **FPS Settings**: Default 13 FPS provides smooth video with maximum stability. Lower FPS (10-12) = less bandwidth, more stable on slower networks. Higher FPS (15-25) = smoother video, requires better network.
+2. **Quality Settings**: Default quality 70 provides excellent balance of quality and stability. Lower (45-70) = smaller files, faster transmission, more headroom. Higher (85-90) = better image quality, larger files, less headroom.
+3. **FPS Settings**: Default 20 FPS provides smooth video with maximum stability. Lower FPS (10-12) = less bandwidth, more stable on slower networks. Higher FPS (15-25) = smoother video, requires better network.
 4. **Resolution Settings**: Default QVGA (320x240) provides excellent balance. QQVGA (160x120) = smaller files, faster transmission. VGA (640x480) = better image quality, larger files, less headroom.
 5. **Debug Mode**: Enable `debug=True` to see performance stats every 60 frames and identify bottlenecks
 6. **Test Network**: Verify your network can handle the target FPS, quality, and resolution
@@ -1139,15 +1139,16 @@ print(f"Free memory: {free_mem} bytes")
 - **Safety Margin:** ~20-30 KB for application code and buffers
 
 **Storage (Flash):**
-- **Minimal Package:** ~100 KB (without database features)
-- **Full Package:** ~172 KB (with MicroTetherDB database)
+- **Minimal Package:** ~94 KB (without database features)
+- **Full Package:** ~131 KB (with MicroTetherDB database)
+- **Streaming Module:** ~33 KB (optional, adds to either package)
 
 **Note:** ESP32-WROOM without PSRAM may experience TLS connection failures due to memory fragmentation, even with sufficient total RAM. TLS handshakes require large contiguous memory blocks (20-40 KB) that may not be available after heap fragmentation.
 
 
 ## Features
 
-- **Lightweight**: Minimal installation uses <100KB flash
+- **Lightweight**: Minimal installation uses ~94KB flash
 - **JPEG Video Streaming**: Real-time video streaming with cooperative multitasking
 - **Local Database**: Optional MicroTetherDB with TTL, queries, and caching
 - **Automatic TTL**: Background cleanup of expired data

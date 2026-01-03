@@ -6,10 +6,11 @@ MAX_FPS = 30
 BOUNDARY = "tendrl"
 _FRAME_HEADER_PREFIX = f"--{BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ".encode('utf-8')
 _FRAME_HEADER_SUFFIX = b"\r\n\r\n"
-# Static streaming configuration - optimized values
-_STREAM_CHUNK_SIZE = 2048
-_STREAM_YIELD_EVERY_BYTES = 8 * 1024
-_STREAM_YIELD_MS = 1
+# Static streaming configuration - optimized values for maximum WiFi throughput
+# Larger chunks reduce syscall overhead and better utilize TCP window sizes
+_STREAM_CHUNK_SIZE = 8192  # 8KB - optimal for WiFi (was 2KB)
+_STREAM_YIELD_EVERY_BYTES = 32 * 1024  # 32KB - reduce yield frequency (was 8KB)
+_STREAM_YIELD_MS = 0  # Remove sleep on yield - just yield to event loop (was 1ms)
 _STREAM_GC_INTERVAL = 250
 _STREAM_RECONNECT_DELAY = 1000
 _STREAM_YIELD_INTERVAL = 3
@@ -20,20 +21,28 @@ async def send_all_async(sock, data):
     sent_since_yield = 0
     consecutive_zeros = 0  # Track consecutive zero returns (indicates connection issue)
     max_consecutive_zeros = 10  # Max zero returns before raising error
+    
+    # Cache socket method lookup for performance (avoid repeated hasattr checks)
+    write_method = sock.write if hasattr(sock, "write") else (sock.send if hasattr(sock, "send") else None)
+    if write_method is None:
+        raise OSError(-1, "Socket is invalid")
 
     while sent < len(mv):
         try:
-            # Check if socket is still valid before writing
-            if not hasattr(sock, 'write') and not hasattr(sock, 'send'):
-                raise OSError(-1, "Socket is invalid")
-
             # Socket write is blocking in MicroPython - blocks until data is transmitted
-            n = sock.write(mv[sent:]) if hasattr(sock, "write") else sock.send(mv[sent:])
+            # Write as much as possible in one call to maximize throughput
+            n = write_method(mv[sent:])
 
             if n > 0:
                 sent += n
                 sent_since_yield += n
                 consecutive_zeros = 0  # Reset counter on successful write
+                
+                # Yield periodically after write to allow other tasks to run
+                # Only yield if threshold reached - no sleep to maximize throughput
+                if sent_since_yield >= _STREAM_YIELD_EVERY_BYTES:
+                    sent_since_yield = 0
+                    await asyncio.sleep(0)  # Just yield, no sleep delay
             elif n == 0:
                 # Socket buffer full or connection issue - wait briefly and retry
                 consecutive_zeros += 1
@@ -47,11 +56,6 @@ async def send_all_async(sock, data):
             else:
                 # Negative return value indicates error
                 raise OSError(-1, f"Socket write returned {n}")
-
-            # Yield periodically after write to allow other tasks to run
-            if sent_since_yield >= _STREAM_YIELD_EVERY_BYTES:
-                sent_since_yield = 0
-                await asyncio.sleep(_STREAM_YIELD_MS / 1000.0)
         except OSError:
             # Re-raise OSError to be caught by caller
             raise
@@ -60,53 +64,54 @@ async def send_all_async(sock, data):
             raise OSError(-1, f"Error during socket write: {exc}")
 
 async def send_bytes_chunked_async(sock, data):
-    if len(data) < _STREAM_YIELD_EVERY_BYTES:
-        await send_all_async(sock, data)
-        return
-
-    mv = memoryview(data)
-    sent_since_yield = 0
-
-    for i in range(0, len(mv), _STREAM_CHUNK_SIZE):
-        chunk = mv[i:i + _STREAM_CHUNK_SIZE]
-        await send_all_async(sock, chunk)
-        sent_since_yield += len(chunk)
-
-        # Yield to event loop periodically - allows other tasks to run
-        if sent_since_yield >= _STREAM_YIELD_EVERY_BYTES:
-            sent_since_yield = 0
-            await asyncio.sleep(_STREAM_YIELD_MS / 1000.0)
+    # Optimization: For small data, send directly without chunking overhead
+    # For large data, send_all_async already handles efficient chunking internally
+    # This function now just delegates to send_all_async to avoid double-chunking
+    await send_all_async(sock, data)
 
 async def send_jpeg_frame_async(sock, jpeg_data, perf_data=None):
     # Build header efficiently using pre-encoded static parts
     header = _FRAME_HEADER_PREFIX + str(len(jpeg_data)).encode('utf-8') + _FRAME_HEADER_SUFFIX
 
-    # Send header - if this fails, connection is definitely dead
-    try:
-        await send_all_async(sock, header)
-    except OSError:
-        raise  # Re-raise to be caught by caller
-
-    # Send frame data - if this fails mid-transmission, connection died during frame send
+    # Throughput optimization: Combine header + first chunk of data to reduce syscalls
+    # This reduces the number of socket write operations, improving WiFi efficiency
+    # Only combine if first chunk is reasonably sized (not too large to avoid memory issues)
     t_frame_send = time.ticks_ms()
     try:
-        await send_bytes_chunked_async(sock, jpeg_data)
+        # Throughput optimization: Batch header with data to reduce syscalls
+        # For small frames: send header + data + terminator in one operation
+        # For large frames: send header + first chunk, then remaining chunks
+        frame_size = len(jpeg_data)
+        header_size = len(header)
+        terminator_size = 2  # b"\r\n"
+
+        # Calculate how much data we can fit with header in first chunk
+        max_first_chunk = _STREAM_CHUNK_SIZE - header_size - terminator_size
+
+        if frame_size <= max_first_chunk:
+            # Small frame: send everything together (header + data + terminator)
+            # This is the most efficient - single syscall for entire frame
+            combined = header + jpeg_data + b"\r\n"
+            await send_all_async(sock, combined)
+        else:
+            # Large frame: send header + first chunk together, then rest
+            # This reduces syscalls from 3 to 2 for most frames
+            first_chunk_size = max_first_chunk if max_first_chunk > 0 else _STREAM_CHUNK_SIZE
+            # Send header + first chunk together
+            combined = header + jpeg_data[:first_chunk_size]
+            await send_all_async(sock, combined)
+            # Send remaining data + terminator
+            remaining = jpeg_data[first_chunk_size:] + b"\r\n"
+            await send_all_async(sock, remaining)
     except OSError as exc:
         # Connection died during frame transmission - this is the "unexpected EOF" case
         raise OSError(-104, f"Connection reset during frame transmission: {exc}")
     t_frame_send_end = time.ticks_ms()
 
-    # Send boundary terminator - if this fails, connection died after frame
-    try:
-        await send_all_async(sock, b"\r\n")
-    except OSError:
-        raise  # Re-raise to be caught by caller
-
-    # Store frame send time (the bottleneck) - always track to identify network issues
+    # Store frame send time (the bottleneck) - optimized: use running sum instead of list
     if perf_data:
-        if 'frame_send_times' not in perf_data:
-            perf_data['frame_send_times'] = []
-        perf_data['frame_send_times'].append(time.ticks_diff(t_frame_send_end, t_frame_send))
+        frame_send_time = time.ticks_diff(t_frame_send_end, t_frame_send)
+        perf_data['frame_send_sum'] += frame_send_time
 
 def create_stream_request(server_host, api_key):
     auth_header = ""
@@ -124,7 +129,6 @@ def create_stream_request(server_host, api_key):
         f"{auth_header}"
         "\r\n"
     ).encode('utf-8')
-
 
 def _extract_hostname_from_url(url):
     """Extract hostname from URL (e.g., https://app.tendrl.com -> app.tendrl.com)"""
@@ -311,7 +315,7 @@ async def validate_capture_function(capture_frame_func):
             f"Please ensure the function is properly configured and returns bytes/bytearray."
         ) from e
 
-def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
+def start_jpeg_stream(client_instance, capture_frame_func, target_fps=20,
                      stream_duration=-1, debug=False):
     # Always collect performance data to identify network bottlenecks
     # Validate target_fps against server maximum
@@ -421,17 +425,21 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                 frames_dropped = 0
 
                 # Performance statistics - only collected if debug enabled to avoid overhead
+                # Optimized: use running sums instead of storing all values to reduce overhead
                 perf_data = None
                 if debug:
                     perf_data = {
-                        'send_times': [],
-                        'total_times': [],
-                        'frame_sizes': [],
+                        'send_sum': 0,           # Running sum of send times
+                        'total_sum': 0,         # Running sum of total times
+                        'size_sum': 0,          # Running sum of frame sizes
+                        'frame_send_sum': 0,    # Running sum of frame send times
+                        'count': 0,             # Number of frames in current period
+                        'max_total': 0,         # Maximum total time
+                        'min_total': 999999,    # Minimum total time
                         'behind_count': 0,
                         'frames_dropped': 0,
                         'last_stats_time': time.ticks_ms(),
                         'last_stats_frame': 1,
-                        'frame_send_times': [] # Specific for network bottleneck
                     }
 
                 while True:
@@ -497,12 +505,24 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                     frame_count += 1
 
                     # Collect performance data (only if debug enabled)
+                    # Optimized: use running sums instead of lists to reduce overhead
                     if perf_data:
                         send_time = time.ticks_diff(t_send_end, t_send_start)
                         total_time = time.ticks_diff(time.ticks_ms(), t0)
-                        perf_data['send_times'].append(send_time)
-                        perf_data['total_times'].append(total_time)
-                        perf_data['frame_sizes'].append(len(jpeg_data))
+                        perf_data['send_sum'] += send_time
+                        perf_data['total_sum'] += total_time
+                        perf_data['size_sum'] += len(jpeg_data)
+                        perf_data['count'] += 1
+                        # Track min/max as we go (no list needed)
+                        if perf_data['count'] == 1:
+                            # First frame: initialize min/max
+                            perf_data['max_total'] = total_time
+                            perf_data['min_total'] = total_time
+                        else:
+                            if total_time > perf_data['max_total']:
+                                perf_data['max_total'] = total_time
+                            if total_time < perf_data['min_total']:
+                                perf_data['min_total'] = total_time
 
                     # Check if duration has elapsed (only check periodically to reduce overhead)
                     if duration_ms and (frame_count % 10 == 0):
@@ -574,24 +594,26 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                             await asyncio.sleep(min_delay_s)
 
                     # Print performance statistics periodically (only if debug enabled)
+                    # Optimized: use running sums instead of lists to reduce overhead
                     if debug and frame_count % 60 == 0:  # Every 60 frames (~2.4s at 25 FPS)
                         elapsed_stats = time.ticks_diff(time.ticks_ms(), perf_data['last_stats_time'])
                         frames_in_period = frame_count - perf_data['last_stats_frame']
                         actual_fps = (frames_in_period * 1000.0) / elapsed_stats if elapsed_stats > 0 else 0
 
-                        if perf_data['send_times']:
-                            avg_send = sum(perf_data['send_times']) / len(perf_data['send_times'])
-                            avg_total = sum(perf_data['total_times']) / len(perf_data['total_times'])
-                            max_total = max(perf_data['total_times'])
-                            min_total = min(perf_data['total_times'])
-                            avg_size = sum(perf_data['frame_sizes']) / len(perf_data['frame_sizes'])
-                            behind_pct = (perf_data['behind_count'] / len(perf_data['total_times'])) * 100
+                        if perf_data['count'] > 0:
+                            # Calculate averages from running sums (no sum() overhead)
+                            avg_send = perf_data['send_sum'] / perf_data['count']
+                            avg_total = perf_data['total_sum'] / perf_data['count']
+                            max_total = perf_data['max_total']
+                            min_total = perf_data['min_total']
+                            avg_size = perf_data['size_sum'] / perf_data['count']
+                            behind_pct = (perf_data['behind_count'] / perf_data['count']) * 100 if perf_data['count'] > 0 else 0
 
                             # Calculate effective network bandwidth from frame send times
                             avg_frame_send = 0
                             effective_bandwidth_mbps = 0
-                            if 'frame_send_times' in perf_data and perf_data['frame_send_times']:
-                                avg_frame_send = sum(perf_data['frame_send_times']) / len(perf_data['frame_send_times'])
+                            if perf_data['frame_send_sum'] > 0:
+                                avg_frame_send = perf_data['frame_send_sum'] / perf_data['count']
                                 effective_bandwidth_kbps = (avg_size * 8) / avg_frame_send if avg_frame_send > 0 else 0
                                 effective_bandwidth_mbps = effective_bandwidth_kbps / 1000
 
@@ -607,26 +629,17 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                             if perf_data and perf_data.get('frames_dropped', 0) > 0:
                                 drop_pct = (perf_data['frames_dropped'] / frames_in_period) * 100
                                 print(f"   Frames Dropped: {perf_data['frames_dropped']} ({drop_pct:.1f}%)")
-
-                            # Performance recommendations
-                            if avg_send > frame_ms * 0.8:
-                                print(f"   ⚠️  Network is bottleneck ({avg_send:.1f}ms > {frame_ms*0.8:.1f}ms)")
-                                print(f"      Consider: reduce frame size/quality or lower FPS to {int(actual_fps * 0.9)}")
-                            if behind_pct > 30:
-                                print(f"   ⚠️  High behind schedule rate ({behind_pct:.1f}%)")
-                                print(f"      Consider: reduce target_fps to {int(actual_fps * 0.9)}")
-                            if max_total > frame_ms * 3:
-                                print(f"   ⚠️  Large frame time spikes (max {max_total:.1f}ms)")
-                                print(f"      Possible network congestion or GC pauses")
                             
-                            # Reset stats for next period
-                            perf_data['send_times'] = []
-                            perf_data['total_times'] = []
-                            perf_data['frame_sizes'] = []
+                            # Reset stats for next period (optimized: reset running sums)
+                            perf_data['send_sum'] = 0
+                            perf_data['total_sum'] = 0
+                            perf_data['size_sum'] = 0
+                            perf_data['frame_send_sum'] = 0
+                            perf_data['count'] = 0
+                            perf_data['max_total'] = 0
+                            perf_data['min_total'] = 999999
                             perf_data['behind_count'] = 0
                             perf_data['frames_dropped'] = 0
-                            if 'frame_send_times' in perf_data:
-                                perf_data['frame_send_times'] = []
                             perf_data['last_stats_time'] = time.ticks_ms()
                             perf_data['last_stats_frame'] = frame_count
 
