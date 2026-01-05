@@ -231,9 +231,11 @@ Create a `config.json` file in your device's root directory:
 
 **Fields:**
 - `api_key` (required): Your Tendrl API key
-- `wifi_ssid` (required): WiFi network name
-- `wifi_pw` (required): WiFi password
+- `wifi_ssid` (required for WiFi): WiFi network name (only needed if using `net="wifi"`)
+- `wifi_pw` (required for WiFi): WiFi password (only needed if using `net="wifi"`)
 - `reset` (optional): Set to `true` to clear cached entity info (useful with watchdog)
+
+**Note:** When using Ethernet (`net="eth"`), WiFi credentials are not required. Ethernet will automatically obtain an IP address via DHCP.
 
 ## Quick Start
 
@@ -242,10 +244,13 @@ Create a `config.json` file in your device's root directory:
 ```python
 from tendrl import Client
 
-# Initialize client - configuration is loaded from config.json
+# Initialize client with WiFi (default) - configuration is loaded from config.json
 client = Client()
 
-# Start the client - connect WiFi and tether queue
+# Or use Ethernet instead
+# client = Client(net="eth")  # No WiFi credentials needed
+
+# Start the client - connect to network (WiFi or Ethernet) and tether queue
 client.start()
 
 # Simplest way: use tether decorator to automatically send function return values
@@ -302,8 +307,9 @@ The SDK provides several initialization options:
 | `client_db` | `bool` | `True` | Enable client database |
 | `client_db_in_memory` | `bool` | `True` | Use in-memory storage for client database (recommended to avoid corruption risk) |
 | `offline_storage` | `bool` | `True` | Enable offline message storage (file-based, [see warning below](#file-based-storage-warning)) |
-| `managed` | `bool` | `True` | Enable managed mode (WiFi, queuing, offline storage) |
+| `managed` | `bool` | `True` | Enable managed mode (WiFi/Ethernet, queuing, offline storage) |
 | `event_loop` | `asyncio.AbstractEventLoop` | `None` | Event loop for async mode (integrates with user applications) |
+| `net` | `str` | `"wifi"` | Network type: "wifi" or "eth" (Ethernet). Ethernet requires `network.LAN()` support on your platform. |
 
 > **Mode and Event Loop**: Given MicroPython only has a single event loop, having the sync mode allows using one of the hardware timers to circumvent this limitation for necesarry non-blocking, background processing. This is the default mode for ease of use.
 >
@@ -317,7 +323,7 @@ The SDK supports two distinct operation modes to suit different use cases:
 
 Managed mode provides full functionality including:
 
-- WiFi connection management
+- WiFi/Ethernet connection management
 - Message queuing and batching
 - Offline message storage
 - Automatic reconnection
@@ -328,20 +334,28 @@ Best for:
 
 - Devices that need reliable message delivery
 - Applications requiring offline operation
-- Systems that need automatic WiFi management
+- Systems that need automatic network management
 - Long-running applications
 
 ```python
 from tendrl import Client
 
-# Initialize in managed mode (default)
+# Initialize in managed mode (default) with WiFi
 client = Client(
     mode="sync",
     managed=True,  # Default, can be omitted
+    net="wifi",    # Default, can be omitted
     debug=True
 )
 
-# Start the client - handles WiFi and connection
+# Or use Ethernet instead
+client = Client(
+    mode="sync",
+    net="eth",     # Use Ethernet instead of WiFi
+    debug=True
+)
+
+# Start the client - handles network connection
 client.start()
 
 # Simplest way: use tether decorator to automatically send function return values
@@ -366,7 +380,7 @@ client.publish(
 Unmanaged mode provides minimal operation:
 
 - Direct message sending without queuing
-- No WiFi management (assumes network is available)
+- No network management (assumes network is available)
 - No offline storage
 - No heartbeats
 - Minimal resource usage
@@ -395,11 +409,17 @@ client.publish(
     tags=["sensors"]
 )
 
-# Using with existing WiFi connection
+# Using with existing network connection (WiFi or Ethernet)
 import network
+# For WiFi:
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
 wlan.connect("your_ssid", "your_password")
+
+# Or for Ethernet:
+# eth = network.LAN()
+# eth.active(True)
+# (Ethernet gets IP automatically via DHCP)
 
 # SDK will use existing connection
 client.publish(
@@ -413,7 +433,7 @@ Choose managed mode when:
 
 - You need reliable message delivery
 - Your device needs to operate offline
-- You want automatic WiFi management
+- You want automatic network management (WiFi or Ethernet)
 - You need message persistence
 - Your application runs continuously
 
@@ -424,6 +444,11 @@ Choose unmanaged mode when:
 - You have limited resources
 - You're running short-lived operations
 - You want minimal overhead
+
+**Network Type Selection:**
+
+- **WiFi (`net="wifi"`)**: Default. Requires WiFi credentials in `config.json`. Best for wireless devices.
+- **Ethernet (`net="eth"`)**: Requires `network.LAN()` support on your platform. Automatically obtains IP via DHCP. No WiFi credentials needed. Best for wired connections or devices with Ethernet ports.
 
 
 ## MQTT Communication
@@ -536,7 +561,7 @@ client.publish(
 - `write_offline` is automatically disabled
 - Messages are sent directly without queuing
 - No offline storage is available
-- No WiFi management is performed
+- No network management is performed (assumes network is already available)
 
 ## Message Callbacks
 
@@ -1288,7 +1313,8 @@ import examples.streaming_with_messaging
 - Monitor with `gc.mem_free()`
 
 **Connection issues:**
-- Verify WiFi credentials in `config.json`
+- **WiFi**: Verify WiFi credentials in `config.json` (`wifi_ssid` and `wifi_pw`)
+- **Ethernet**: Ensure Ethernet cable is connected and `network.LAN()` is supported on your platform
 - Check API key is valid
 - Review network connectivity
 - Check TLS/SSL configuration

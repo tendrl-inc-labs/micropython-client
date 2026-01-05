@@ -41,7 +41,7 @@ class Client:
     def __init__(self,mode="sync",debug=False,timer=0,freq=3,callback=None,
         check_msg_rate=5,max_batch_size=15,db_page_size=1024,watchdog=0,
         send_heartbeat=True, client_db=True, client_db_in_memory=True,
-        offline_storage=True, managed=True, event_loop=None):
+        offline_storage=True, managed=True, event_loop=None, net="wifi"):
         if mode not in ["sync", "async"]:
             raise ValueError("Mode must be either 'sync' or 'async'")
         if mode == "async" and not ASYNCIO_AVAILABLE:
@@ -64,9 +64,9 @@ class Client:
         if not self.config.get("app_url"):
             self.config["app_url"] = "https://app.tendrl.com"
         self.network = (
-            NetworkManager(self.config, debug, headless=not managed)
+            NetworkManager(self.config, debug, headless=not managed, net_type=net)
             if not managed
-            else NetworkManager(self.config, debug)
+            else NetworkManager(self.config, debug, net_type=net)
         )
         # Always attempt to initialize MQTT (required for messaging and streaming online status)
         # If initialization fails, continue gracefully without MQTT

@@ -108,38 +108,71 @@ def ntp_time(retry=0):
             time.sleep(1)
             ntp_time(retry)
 
-def network_connect(ssid, password, max_retries=3, retry=0, debug=False):
+def network_connect(ssid, password, max_retries=3, retry=0, debug=False, net_type="wifi"):
     import network
     import time
 
-    try:
-        station = network.WLAN(network.STA_IF)
-        station.active(True)
-        if retry < max_retries:
-            station.connect(ssid, password)
-            time.sleep(1.5)
-            if station.isconnected():
+    if net_type == "eth":
+        try:
+            eth = network.LAN()
+            # Check if already connected (for reconnection scenarios)
+            if eth.isconnected():
+                return eth
+
+            eth.active(True)
+            try:
+                eth.ipconfig('dhcp4', True)
+            except (AttributeError, TypeError):
+                pass
+
+            # Wait for DHCP to assign IP
+            max_wait = 10  # Wait up to 10 seconds for DHCP
+            wait_count = 0
+            while wait_count < max_wait:
+                if eth.isconnected():
+                    if debug:
+                        print("Ethernet connected")
+                    return eth
+                time.sleep(1)
+                wait_count += 1
+                if debug and wait_count % 2 == 0:
+                    print(f"Waiting for Ethernet connection... ({wait_count}s)")
+            if debug:
+                print("Ethernet connection timeout")
+            return eth
+        except Exception as e:
+            if debug:
+                print(f"Ethernet connection error: {e}")
+            return None
+    else:
+        try:
+            station = network.WLAN(network.STA_IF)
+            station.active(True)
+            if retry < max_retries:
+                station.connect(ssid, password)
+                time.sleep(1.5)
+                if station.isconnected():
+                    if debug:
+                        print("WiFi Status: ", get_wifi_status(station))
+                    return station
                 if debug:
                     print("WiFi Status: ", get_wifi_status(station))
-                return station
-            if debug:
-                print("WiFi Status: ", get_wifi_status(station))
-            retry += 1
-            if debug:
-                print("Retrying WiFi Connection...")
-            return network_connect(ssid, password, retry=retry, debug=debug)
-        return station
-    except OSError as e:
-        if e == "WiFi Internal Error":
-            if debug:
-                print("Unable to connect to WiFi")
-        return station
-    except AttributeError:
-        return station
-    except KeyboardInterrupt:
-        if station:
-            station.disconnect()
-            station.active(False)
+                retry += 1
+                if debug:
+                    print("Retrying WiFi Connection...")
+                return network_connect(ssid, password, retry=retry, debug=debug, net_type=net_type)
+            return station
+        except OSError as e:
+            if e == "WiFi Internal Error":
+                if debug:
+                    print("Unable to connect to WiFi")
+            return station
+        except AttributeError:
+            return station
+        except KeyboardInterrupt:
+            if station:
+                station.disconnect()
+                station.active(False)
 
 def network_scan(station=None):
     import network
