@@ -15,6 +15,110 @@ _STREAM_GC_INTERVAL = 250
 _STREAM_RECONNECT_DELAY = 1000
 _STREAM_YIELD_INTERVAL = 3
 
+class Stream:
+    """
+    Stream object for managing JPEG video streaming.
+    
+    Supports two modes:
+    - Pull mode: Uses capture_frame_func to automatically capture frames
+    - Push mode: User calls send_frame() to push frames into the stream
+    """
+    def __init__(self, stream_loop_func, frame_queue=None, client_instance=None):
+        self.frame_queue = frame_queue
+        self.stream_loop_func = stream_loop_func
+        self.client_instance = client_instance
+        self.task = None
+        self._started = False
+    
+    async def send_frame(self, frame_data):
+        """
+        Push a frame into the stream (only works in push mode).
+        
+        Args:
+            frame_data: bytes or bytearray containing JPEG frame data
+            
+        Raises:
+            RuntimeError: If stream is not in push mode (no frame_queue) or stream has stopped
+            TypeError: If frame_data is not bytes or bytearray
+            ValueError: If frame_data is empty
+        """
+        if self.frame_queue is None:
+            raise RuntimeError(
+                "Stream not in push mode. Use accept_frames=True when creating stream, "
+                "or provide capture_frame_func for pull mode."
+            )
+        
+        # Check if stream is still running
+        if self.task is None or self.task.done():
+            raise RuntimeError(
+                "Stream has stopped. The stream task is no longer running. "
+                "This can happen if stream_duration elapsed or the stream was stopped. "
+                "Create a new stream to continue sending frames."
+            )
+        
+        # Validate frame data
+        if not isinstance(frame_data, (bytes, bytearray)):
+            raise TypeError(
+                f"frame_data must be bytes or bytearray, got {type(frame_data).__name__}"
+            )
+        if not frame_data or len(frame_data) == 0:
+            raise ValueError("frame_data cannot be empty")
+        
+        # Put frame in queue (drop oldest if full for adaptive dropping)
+        try:
+            self.frame_queue.put_nowait(frame_data)
+        except asyncio.QueueFull:
+            # Queue full - drop oldest frame to make room (adaptive dropping)
+            try:
+                self.frame_queue.get_nowait()  # Drop oldest
+                self.frame_queue.put_nowait(frame_data)
+            except:
+                # If get_nowait fails, queue might be empty (race condition)
+                # Try one more time to put
+                try:
+                    self.frame_queue.put_nowait(frame_data)
+                except:
+                    pass  # Drop frame if still can't add
+    
+    def start(self):
+        """
+        Start the stream loop as a background task.
+        Returns the task object.
+        """
+        if self._started:
+            return self.task
+        
+        if self.client_instance and self.client_instance.mode == "async":
+            try:
+                stream_coro = self.stream_loop_func()
+                self.task = self.client_instance.add_background_task(stream_coro)
+                self._started = True
+                return self.task
+            except Exception as e:
+                if self.client_instance and self.client_instance.debug:
+                    print(f"Error starting stream: {e}")
+                return None
+        else:
+            if self.client_instance and self.client_instance.debug:
+                print("Warning: Streaming requires async mode. Use Client(mode='async')")
+            return None
+    
+    def stop(self):
+        """Stop the stream (cancel the background task)."""
+        if self.task:
+            self.task.cancel()
+            self.task = None
+        self._started = False
+    
+    def is_running(self):
+        """
+        Check if the stream is currently running.
+        
+        Returns:
+            bool: True if stream is running, False otherwise
+        """
+        return self.task is not None and not self.task.done()
+
 async def send_all_async(sock, data):
     mv = memoryview(data)
     sent = 0
@@ -220,10 +324,22 @@ async def _connect_to_server(server_host, port, debug=False):
                 pass
         raise
 
-async def _send_first_frame(sock, capture_frame_func, server_host, api_key, debug=False):
-    # Capture first frame
+async def _send_first_frame(sock, capture_frame_func, frame_queue, server_host, api_key, debug=False):
+    # Capture first frame - use queue (push mode) or function (pull mode)
     try:
-        first_frame = await _capture_frame(capture_frame_func)
+        if frame_queue is not None:
+            # Push mode: wait for first frame from queue with timeout
+            # Use 5 second timeout to prevent indefinite blocking if user doesn't send frames
+            try:
+                first_frame = await asyncio.wait_for(frame_queue.get(), timeout=5.0)
+            except asyncio.TimeoutError:
+                raise RuntimeError(
+                    "No frame received within 5 seconds in push mode. "
+                    "Ensure you call stream.send_frame() after starting the stream."
+                )
+        else:
+            # Pull mode: call capture function
+            first_frame = await _capture_frame(capture_frame_func)
     except Exception:
         # If first frame capture fails, retry will happen in outer loop
         raise
@@ -315,8 +431,8 @@ async def validate_capture_function(capture_frame_func):
             f"Please ensure the function is properly configured and returns bytes/bytearray."
         ) from e
 
-def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
-                     stream_duration=-1, debug=False):
+def start_jpeg_stream(client_instance, capture_frame_func=None, target_fps=15,
+                     stream_duration=-1, debug=False, frame_queue=None):
     # Always collect performance data to identify network bottlenecks
     # Validate target_fps against server maximum
     if target_fps > MAX_FPS:
@@ -337,6 +453,18 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
 
     # Cache API key lookup - avoid repeated config access in hot path
     api_key = client_instance.config.get("api_key", "")
+
+    # Validate that exactly one of capture_frame_func or frame_queue is provided
+    if capture_frame_func is not None and frame_queue is not None:
+        raise ValueError(
+            "Cannot use both capture_frame_func and frame_queue. "
+            "Use capture_frame_func for pull mode, or frame_queue (accept_frames=True) for push mode."
+        )
+    if capture_frame_func is None and frame_queue is None:
+        raise ValueError(
+            "Either capture_frame_func or frame_queue must be provided. "
+            "Use capture_frame_func for pull mode, or accept_frames=True for push mode."
+        )
 
     async def stream_loop():
         """Async stream loop that yields control periodically"""
@@ -361,7 +489,9 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
             chunk_50ms = 0.05
 
         # Validate capture function once before streaming - fail fast with clear error
-        await validate_capture_function(capture_frame_func)
+        # Only validate if using pull mode (capture_frame_func provided)
+        if capture_frame_func is not None:
+            await validate_capture_function(capture_frame_func)
 
         while True:
             # Check if duration has elapsed
@@ -397,7 +527,7 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                 # Send first frame and initial request
                 try:
                     await _send_first_frame(
-                        s, capture_frame_func, server_host, api_key,
+                        s, capture_frame_func, frame_queue, server_host, api_key,
                         debug=debug
                     )
                 except Exception:
@@ -469,12 +599,26 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                             # Moderate: skip every other frame
                             should_skip = (frame_count % 2 == 0)
 
-                    # Capture frame - use fast path (skip validation after first frame)
+                    # Capture frame - use queue (push mode) or function (pull mode)
                     try:
-                        jpeg_data = await _capture_frame(capture_frame_func, validate=False)
+                        if frame_queue is not None:
+                            # Push mode: wait for frame from queue
+                            # Use timeout to allow checking duration and other conditions
+                            try:
+                                jpeg_data = await asyncio.wait_for(
+                                    frame_queue.get(),
+                                    timeout=frame_s if frame_s > 0 else 0.1
+                                )
+                            except asyncio.TimeoutError:
+                                # No frame available - skip this iteration
+                                # This allows the loop to check duration and other conditions
+                                continue
+                        else:
+                            # Pull mode: call capture function
+                            jpeg_data = await _capture_frame(capture_frame_func, validate=False)
                     except Exception as func_err:
                         if debug:
-                            print(f"Error in capture function: {func_err}")
+                            print(f"Error capturing frame: {func_err}")
                         await asyncio.sleep(frame_s)
                         continue
 

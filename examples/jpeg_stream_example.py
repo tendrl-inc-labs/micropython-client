@@ -32,7 +32,7 @@ async def main():
     # - Quality 80 (excellent balance of quality and stability)
     # - 1500ms frame skip for camera stabilization
 
-    # Defaults: target_fps=13, quality=80, framesize="QVGA" (optimized for quality and stability)
+    # Defaults: target_fps=15, quality=70, framesize="QVGA" (optimized for quality and stability)
     # You can adjust these if needed:
     # - Lower quality (45-70) = smaller files, faster transmission, more headroom
     # - Higher quality (85-90) = better image quality, larger files, less headroom
@@ -40,7 +40,13 @@ async def main():
     # - Higher FPS (15-25) = smoother video, requires better network
     # - Smaller framesize ("QQVGA") = smaller files, faster transmission
     # - Larger framesize ("VGA") = better image quality, larger files, less headroom
-    client.start_streaming()  # Uses defaults: FPS=13, quality=80, framesize="QVGA"
+    stream = client.start_streaming()  # Uses defaults: FPS=15, quality=70, framesize="QVGA"
+    
+    # Alternative: Push mode for manual frame control
+    # stream = client.start_streaming(accept_frames=True, target_fps=15)
+    # Then send frames manually:
+    # frame = sensor.snapshot().bytearray()
+    # await stream.send_frame(frame)
 
     # Example: Use larger resolution for better image quality
     # client.start_streaming(framesize="VGA", quality=45, target_fps=15)

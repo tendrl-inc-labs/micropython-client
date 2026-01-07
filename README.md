@@ -790,12 +790,13 @@ asyncio.run(main())
 Start streaming JPEG frames to the server.
 
 ```python
-stream_task = client.start_streaming(
-    capture_frame_func=None,      # Custom capture function (optional)
+stream = client.start_streaming(
+    capture_frame_func=None,      # Custom capture function (optional, pull mode)
     target_fps=15,                 # Target frames per second (default: 15, max: 30)
     quality=70,                    # JPEG quality 0-100 (default: 70, optimized for quality and stability)
     framesize="QVGA",              # Frame size: "QQVGA" (160x120), "QVGA" (320x240), or "VGA" (640x480). Default: "QVGA"
-    stream_duration=-1             # Duration in seconds (-1 = indefinite, default)
+    stream_duration=-1,            # Duration in seconds (-1 = indefinite, default)
+    accept_frames=False            # If True, enables push mode - return Stream object with send_frame() method
 )
 ```
 
@@ -803,11 +804,26 @@ stream_task = client.start_streaming(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `capture_frame_func` | `callable` | `None` | Function that returns JPEG bytes. If `None` and `sensor` module available, camera is automatically configured with optimized settings (QVGA, JPEG, quality, skip_frames). |
+| `capture_frame_func` | `callable` | `None` | Function that returns JPEG bytes (pull mode). If `None` and `sensor` module available, camera is automatically configured with optimized settings (QVGA, JPEG, quality, skip_frames). Ignored if `accept_frames=True`. |
 | `target_fps` | `int` | `15` | Target frames per second (maximum: 30, enforced by server). Default 15 provides consistent performance and stability with better network headroom. |
-| `quality` | `int` | `70` | JPEG quality 0-100 (lower = smaller files, faster transmission). Default 70 provides excellent balance of quality and stability. |
-| `framesize` | `str` | `"QVGA"` | Frame size: `"QQVGA"` (160x120), `"QVGA"` (320x240, default), or `"VGA"` (640x480). |
-| `stream_duration` | `int` | `-1` | Duration in seconds. `-1` = stream indefinitely until stopped |
+| `quality` | `int` | `70` | JPEG quality 0-100 (lower = smaller files, faster transmission). Default 70 provides excellent balance of quality and stability. Only used when `capture_frame_func=None` and `accept_frames=False`. |
+| `framesize` | `str` | `"QVGA"` | Frame size: `"QQVGA"` (160x120), `"QVGA"` (320x240, default), or `"VGA"` (640x480). Only used when `capture_frame_func=None` and `accept_frames=False`. |
+| `stream_duration` | `int` | `-1` | Duration in seconds. `-1` = stream indefinitely until stopped. Works in both pull and push modes. |
+| `accept_frames` | `bool` | `False` | If `True`, enables push mode. Returns `Stream` object with `send_frame()` method. User controls when frames are captured and sent. Cannot be used with `capture_frame_func`. |
+
+**Streaming Modes:**
+
+The streaming system supports two modes:
+
+1. **Pull Mode (default)**: Stream automatically captures frames using `capture_frame_func` or default camera
+   - Stream controls frame capture timing
+   - Best for automatic camera streaming
+   - Supports adaptive frame dropping based on network conditions
+
+2. **Push Mode** (`accept_frames=True`): User manually sends frames via `stream.send_frame()`
+   - User controls frame capture timing
+   - Best for custom capture logic, multiple sources, or processing before streaming
+   - Frames are queued and sent asynchronously
 
 **Camera Configuration:**
 
@@ -819,11 +835,34 @@ When `capture_frame_func` is `None` and the `sensor` module is available, the ca
 
 These settings are optimized for streaming performance and can be adjusted via the `quality` parameter. For custom camera configuration, provide your own `capture_frame_func`.
 
-**Returns:** Background task (async mode) or `None` (sync mode)
+**Returns:** `Stream` object (async mode) or `Stream` object (sync mode, but must start manually)
+
+**Stream Object Methods:**
+
+When `accept_frames=True` or when using the returned stream object:
+
+- `stream.send_frame(frame_data)`: Push a frame into the stream (async, push mode only)
+  - `frame_data`: `bytes` or `bytearray` containing JPEG frame data
+  - Raises `RuntimeError` if stream has stopped or not in push mode
+  - Raises `TypeError` if frame_data is not bytes/bytearray
+  - Raises `ValueError` if frame_data is empty
+
+- `stream.start()`: Start the stream loop as a background task (called automatically in async mode)
+
+- `stream.stop()`: Stop the stream (cancel the background task)
+
+- `stream.is_running()`: Check if the stream is currently running
+  - Returns `True` if stream task exists and is not done
+  - Returns `False` if stream has stopped or was never started
 
 **Raises:**
-- `ValueError`: If `target_fps` exceeds 30 or is <= 0
-- `ImportError`: If `sensor` module not available and no `capture_frame_func` provided
+- `ValueError`: If `target_fps` exceeds 30 or is <= 0, or if both `accept_frames=True` and `capture_frame_func` are provided
+- `ImportError`: If `sensor` module not available and no `capture_frame_func` provided (when `accept_frames=False`)
+
+**Stream.send_frame() Raises:**
+- `RuntimeError`: If stream has stopped (duration elapsed or manually stopped), or if stream is not in push mode
+- `TypeError`: If `frame_data` is not bytes or bytearray
+- `ValueError`: If `frame_data` is empty
 
 #### `stop_streaming()`
 
@@ -941,7 +980,69 @@ async def main():
 asyncio.run(main())
 ```
 
-#### Example 4: Timed Streaming (Motion Detection)
+#### Example 4: Push Mode (Manual Frame Control)
+
+```python
+import asyncio
+import sensor
+from tendrl import Client
+
+async def main():
+    client = Client(mode="async", debug=True)
+    client.start()
+    await asyncio.sleep(2)
+    
+    # Enable push mode - stream will wait for frames via send_frame()
+    stream = client.start_streaming(
+        accept_frames=True,    # Enable push mode
+        target_fps=15,
+        stream_duration=60    # Stream for 60 seconds
+    )
+    
+    # Setup camera with custom settings
+    sensor.reset()
+    sensor.set_pixformat(sensor.JPEG)
+    sensor.set_framesize(sensor.QVGA)
+    sensor.set_quality(70)
+    sensor.skip_frames(time=1500)
+    
+    # User controls when frames are captured and sent
+    frame_count = 0
+    start_time = asyncio.get_event_loop().time()
+    
+    while frame_count < 900:  # ~60 seconds at 15 FPS
+        # Capture frame
+        img = sensor.snapshot()
+        frame_data = img.bytearray()
+        
+        # Optional: Process frame (e.g., add overlay, filter, etc.)
+        # frame_data = process_frame(frame_data)
+        
+        # Send frame to stream
+        try:
+            await stream.send_frame(frame_data)
+            frame_count += 1
+        except RuntimeError as e:
+            # Stream has stopped (duration elapsed or stopped)
+            print(f"Stream stopped: {e}")
+            break
+        
+        # Control frame rate manually
+        await asyncio.sleep(1.0 / 15)  # ~15 FPS
+    
+    await client.async_stop()
+
+asyncio.run(main())
+```
+
+**Push Mode Benefits:**
+- Full control over frame capture timing
+- Can process frames before sending (overlays, filters, etc.)
+- Can combine multiple sources or switch between sources
+- Can skip frames based on custom logic (motion detection, etc.)
+- Works with any capture mechanism, not just camera
+
+#### Example 5: Timed Streaming (Motion Detection)
 
 ```python
 import asyncio

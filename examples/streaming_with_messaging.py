@@ -76,14 +76,16 @@ async def main():
     await asyncio.sleep(2)
 
     # Start streaming - Option 1: Simplest usage (uses default camera settings)
-    # Camera is automatically set up with optimized settings (QVGA, quality 80)
-    # Defaults: target_fps=13, quality=80, framesize="QVGA" (optimized for quality and stability)
+    # Camera is automatically set up with optimized settings (QVGA, quality 70)
+    # Defaults: target_fps=15, quality=70, framesize="QVGA" (optimized for quality and stability)
     print("\n📹 Starting video stream...")
     try:
-        stream_task = client.start_streaming()  # Uses defaults: FPS=13, quality=80, framesize="QVGA"
+        stream = client.start_streaming()  # Uses defaults: FPS=15, quality=70, framesize="QVGA"
         print("✅ Streaming started as background task")
+        stream_task = stream.task if stream else None
     except ImportError:
         print("⚠️ Camera module not available - skipping streaming")
+        stream = None
         stream_task = None
     
     # Option 2: Adjust quality and FPS for your network
@@ -92,13 +94,22 @@ async def main():
     #     quality=50                   # Lower quality for more headroom
     # )
     
-    # Option 3: Custom capture function (most control)
+    # Option 3: Custom capture function (pull mode - most control)
     # setup_camera()  # Setup camera first with your custom settings
-    # stream_task = client.start_streaming(
+    # stream = client.start_streaming(
     #     capture_frame_func=capture_frame,
     #     target_fps=13,  # Use default or adjust as needed
     #     quality=80      # Note: quality parameter not used with custom capture
     # )
+    
+    # Option 4: Push mode - manual frame control (maximum flexibility)
+    # stream = client.start_streaming(
+    #     accept_frames=True,  # Enable push mode
+    #     target_fps=15
+    # )
+    # # Then in your loop:
+    # # frame = capture_frame()
+    # # await stream.send_frame(frame)
 
     # Example: Publish some data while streaming
     print("\n📤 Publishing messages while streaming...")

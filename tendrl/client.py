@@ -721,10 +721,11 @@ class Client:
         return wrapper
 
     def start_streaming(self, capture_frame_func=None, target_fps=15,
-                       quality=70, framesize="QVGA", stream_duration=-1):
+                       quality=70, framesize="QVGA", stream_duration=-1, accept_frames=False):
 
         try:
-            from .streaming import start_jpeg_stream
+            from .streaming import start_jpeg_stream, Stream
+            import asyncio
         except ImportError:
             raise ImportError(
                 "JPEG streaming requires the optional streaming module. "
@@ -732,51 +733,64 @@ class Client:
                 "or manually install tendrl/streaming.py"
             )
 
-        # Handle camera setup and default capture function
-        if capture_frame_func is None:
-            # Try to use default camera capture if sensor module is available
-            try:
-                import sensor
-
-                # Validate and map framesize parameter
-                # Default is QVGA, but allow None for backward compatibility
-                if framesize is None or framesize.upper() == "QVGA":
-                    framesize = sensor.QVGA
-                    framesize_name = "QVGA"
-                elif framesize.upper() == "QQVGA":
-                    framesize = sensor.QQVGA
-                    framesize_name = "QQVGA"
-                elif framesize.upper() == "VGA":
-                    framesize = sensor.VGA
-                    framesize_name = "VGA"
-                else:
-                    raise ValueError(
-                        f"Invalid framesize '{framesize}'. Must be 'QQVGA', 'QVGA', or 'VGA'"
-                    )
-
-                # Setup camera with optimized static settings
-                if self.debug:
-                    print(f"Setting up camera: {framesize_name}, JPEG, Quality={quality}")
-                sensor.reset()
-                sensor.set_pixformat(sensor.JPEG)
-                sensor.set_framesize(framesize)
-                sensor.set_quality(quality)
-                sensor.skip_frames(time=1500)
-
-                # Create default capture function
-                def default_capture_frame():
-                    img = sensor.snapshot()
-                    return img.bytearray()
-
-                capture_frame_func = default_capture_frame
-                if self.debug:
-                    print("Using default camera capture function")
-  
-            except ImportError:
-                raise ImportError(
-                    "Camera capture function required. Either provide capture_frame_func, "
-                    "or ensure sensor module is available for default camera support."
+        # Handle push mode (accept_frames=True) - create queue and skip camera setup
+        frame_queue = None
+        if accept_frames:
+            if capture_frame_func is not None:
+                raise ValueError(
+                    "Cannot use both accept_frames=True and capture_frame_func. "
+                    "Use accept_frames=True for push mode, or capture_frame_func for pull mode."
                 )
+            # Create queue for push mode (small buffer for adaptive dropping)
+            frame_queue = asyncio.Queue(maxsize=2)
+            if self.debug:
+                print("Stream in push mode - use stream.send_frame() to send frames")
+        else:
+            # Pull mode: Handle camera setup and default capture function
+            if capture_frame_func is None:
+                # Try to use default camera capture if sensor module is available
+                try:
+                    import sensor
+
+                    # Validate and map framesize parameter
+                    # Default is QVGA, but allow None for backward compatibility
+                    if framesize is None or framesize.upper() == "QVGA":
+                        framesize = sensor.QVGA
+                        framesize_name = "QVGA"
+                    elif framesize.upper() == "QQVGA":
+                        framesize = sensor.QQVGA
+                        framesize_name = "QQVGA"
+                    elif framesize.upper() == "VGA":
+                        framesize = sensor.VGA
+                        framesize_name = "VGA"
+                    else:
+                        raise ValueError(
+                            f"Invalid framesize '{framesize}'. Must be 'QQVGA', 'QVGA', or 'VGA'"
+                        )
+
+                    # Setup camera with optimized static settings
+                    if self.debug:
+                        print(f"Setting up camera: {framesize_name}, JPEG, Quality={quality}")
+                    sensor.reset()
+                    sensor.set_pixformat(sensor.JPEG)
+                    sensor.set_framesize(framesize)
+                    sensor.set_quality(quality)
+                    sensor.skip_frames(time=1500)
+
+                    # Create default capture function
+                    def default_capture_frame():
+                        img = sensor.snapshot()
+                        return img.bytearray()
+
+                    capture_frame_func = default_capture_frame
+                    if self.debug:
+                        print("Using default camera capture function")
+      
+                except ImportError:
+                    raise ImportError(
+                        "Camera capture function required. Either provide capture_frame_func, "
+                        "or ensure sensor module is available for default camera support."
+                    )
 
         # Streaming requires MQTT to show entity as online before streaming starts
         # If MQTT failed to initialize, warn but allow streaming to continue
@@ -806,43 +820,34 @@ class Client:
                 print("MQTT not connected - will wait for connection in stream loop")
 
         if self.debug:
-            print(f"Starting streaming with FPS={target_fps}, quality={quality}")
+            mode_str = "push" if accept_frames else "pull"
+            print(f"Starting streaming (mode={mode_str}) with FPS={target_fps}, quality={quality}")
 
         stream_loop_func = start_jpeg_stream(
             self,
             capture_frame_func,
             target_fps,
             stream_duration,
-            self.debug
+            self.debug,
+            frame_queue=frame_queue
         )
 
-        # Automatically add to background tasks if in async mode
+        # Create Stream object
+        stream = Stream(stream_loop_func, frame_queue=frame_queue, client_instance=self)
+
+        # Automatically start stream if in async mode
         if self.mode == "async":
-            # Call the coroutine function to get the actual coroutine/generator
-            try:
-                stream_coro = stream_loop_func()
-                # In MicroPython, async functions might return generators instead of coroutines
-                # asyncio.create_task() can handle both in MicroPython
-                # Just try to create the task - it will work if it's awaitable
-                task = self.add_background_task(stream_coro)
-                # Store reference for stop control
+            task = stream.start()
+            if task:
+                # Store reference for stop control (backward compatibility)
                 self._streaming_task = task
-                return task
-            except Exception as e:
-                if self.debug:
-                    print(f"Error calling stream_loop_func() or creating task: {e}")
-                    try:
-                        import sys
-                        sys.print_exception(e)
-                    except:
-                        pass
-                return None
+            return stream
         else:
             # In sync mode, we can't run async coroutines directly
             # User would need to handle this differently or use async mode
             if self.debug:
                 print("Warning: Streaming requires async mode. Use Client(mode='async')")
-            return None
+            return stream  # Return stream object even in sync mode (user can start manually)
 
     def stop_streaming(self):
         if self._streaming_task is None:
