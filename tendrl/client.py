@@ -123,6 +123,8 @@ class Client:
             self._stop_event = asyncio.Event()
             self._tasks = []
             self._streaming_task = None  # Store reference to streaming task for stop control
+            self._streaming_stopping = False  # Flag to prevent starting new stream while stopping
+            self._streaming_starting = False  # Flag to prevent concurrent stream starts
         if BTREE_AVAILABLE and managed:
             try:
                 database_event_loop = None
@@ -724,14 +726,13 @@ class Client:
                        quality=70, framesize="QVGA", stream_duration=-1, accept_frames=False):
 
         try:
-            from .streaming import start_jpeg_stream, Stream
-            import asyncio
-        except ImportError:
+            from .streaming import start_jpeg_stream, Stream, FrameQueue
+        except ImportError as e:
             raise ImportError(
                 "JPEG streaming requires the optional streaming module. "
                 "Install with: mip.install(..., extra_args=['--streaming']) "
                 "or manually install tendrl/streaming.py"
-            )
+            ) from e
 
         # Handle push mode (accept_frames=True) - create queue and skip camera setup
         frame_queue = None
@@ -741,56 +742,19 @@ class Client:
                     "Cannot use both accept_frames=True and capture_frame_func. "
                     "Use accept_frames=True for push mode, or capture_frame_func for pull mode."
                 )
-            # Create queue for push mode (small buffer for adaptive dropping)
-            frame_queue = asyncio.Queue(maxsize=2)
+            # Create frame queue for push mode
+            frame_queue = FrameQueue(maxsize=5)  # Buffer for 15 FPS streaming
             if self.debug:
                 print("Stream in push mode - use stream.send_frame() to send frames")
         else:
             # Pull mode: Handle camera setup and default capture function
             if capture_frame_func is None:
-                # Try to use default camera capture if sensor module is available
-                try:
-                    import sensor
-
-                    # Validate and map framesize parameter
-                    # Default is QVGA, but allow None for backward compatibility
-                    if framesize is None or framesize.upper() == "QVGA":
-                        framesize = sensor.QVGA
-                        framesize_name = "QVGA"
-                    elif framesize.upper() == "QQVGA":
-                        framesize = sensor.QQVGA
-                        framesize_name = "QQVGA"
-                    elif framesize.upper() == "VGA":
-                        framesize = sensor.VGA
-                        framesize_name = "VGA"
-                    else:
-                        raise ValueError(
-                            f"Invalid framesize '{framesize}'. Must be 'QQVGA', 'QVGA', or 'VGA'"
-                        )
-
-                    # Setup camera with optimized static settings
-                    if self.debug:
-                        print(f"Setting up camera: {framesize_name}, JPEG, Quality={quality}")
-                    sensor.reset()
-                    sensor.set_pixformat(sensor.JPEG)
-                    sensor.set_framesize(framesize)
-                    sensor.set_quality(quality)
-                    sensor.skip_frames(time=1500)
-
-                    # Create default capture function
-                    def default_capture_frame():
-                        img = sensor.snapshot()
-                        return img.bytearray()
-
-                    capture_frame_func = default_capture_frame
-                    if self.debug:
-                        print("Using default camera capture function")
-      
-                except ImportError:
-                    raise ImportError(
-                        "Camera capture function required. Either provide capture_frame_func, "
-                        "or ensure sensor module is available for default camera support."
-                    )
+                # Use Stream class method to setup default camera
+                capture_frame_func = Stream.setup_default_camera(
+                    quality=quality,
+                    framesize=framesize,
+                    debug=self.debug
+                )
 
         # Streaming requires MQTT to show entity as online before streaming starts
         # If MQTT failed to initialize, warn but allow streaming to continue
@@ -819,6 +783,35 @@ class Client:
             if self.debug:
                 print("MQTT not connected - will wait for connection in stream loop")
 
+        # Prevent concurrent stream starts
+        if self._streaming_starting:
+            if self.debug:
+                print("Stream start already in progress, skipping duplicate start")
+            return None
+        
+        # Stop any existing stream before creating a new one
+        if self.is_streaming() or self._streaming_stopping:
+            if self.debug:
+                print("Stopping existing stream before starting new one...")
+            self._streaming_stopping = True
+            self.stop_streaming()
+            # Give the task a moment to actually cancel (can't await in sync method)
+            # Check if task is done, with a small delay for cancellation to take effect
+            import time
+            start_wait = time.ticks_ms()
+            max_wait_ms = 1000  # Max 1 second wait
+            while self._streaming_task is not None and hasattr(self._streaming_task, "done") and not self._streaming_task.done():
+                elapsed = time.ticks_diff(time.ticks_ms(), start_wait)
+                if elapsed > max_wait_ms:
+                    if self.debug:
+                        print("Warning: Stream task not cancelled within timeout")
+                    break
+                time.sleep(0.01)  # 10ms delay
+            self._streaming_stopping = False
+        
+        # Set flag to prevent concurrent starts
+        self._streaming_starting = True
+
         if self.debug:
             mode_str = "push" if accept_frames else "pull"
             print(f"Starting streaming (mode={mode_str}) with FPS={target_fps}, quality={quality}")
@@ -836,12 +829,35 @@ class Client:
         stream = Stream(stream_loop_func, frame_queue=frame_queue, client_instance=self)
 
         # Automatically start stream if in async mode
-        if self.mode == "async":
-            task = stream.start()
-            if task:
-                # Store reference for stop control (backward compatibility)
-                self._streaming_task = task
-            return stream
+        try:
+            if self.mode == "async":
+                # Final check before starting - ensure no stream is running
+                if self.is_streaming():
+                    if self.debug:
+                        print("Warning: Stream already running, cannot start new stream")
+                    self._streaming_starting = False
+                    return stream  # Return stream object even if we can't start it
+                
+                task = stream.start()
+                if task:
+                    # Verify task was actually created and store reference
+                    if self._streaming_task is not None and not (hasattr(self._streaming_task, "done") and self._streaming_task.done()):
+                        if self.debug:
+                            print("Warning: Streaming task already exists, cancelling old task")
+                        try:
+                            self._streaming_task.cancel()
+                        except:
+                            pass
+                    # Store reference for stop control (backward compatibility)
+                    self._streaming_task = task
+                    self._streaming_stopping = False  # Clear stopping flag when new stream starts
+                else:
+                    if self.debug:
+                        print("Warning: Stream.start() returned None, stream not started")
+                return stream
+        finally:
+            # Always clear the starting flag
+            self._streaming_starting = False
         else:
             # In sync mode, we can't run async coroutines directly
             # User would need to handle this differently or use async mode
@@ -853,25 +869,45 @@ class Client:
         if self._streaming_task is None:
             if self.debug:
                 print("No streaming task to stop")
+            self._streaming_stopping = False
             return False
 
         try:
-            if hasattr(self._streaming_task, "done") and not self._streaming_task.done():
-                self._streaming_task.cancel()
+            self._streaming_stopping = True
+            task_to_cancel = self._streaming_task
+            if hasattr(task_to_cancel, "done") and not task_to_cancel.done():
+                task_to_cancel.cancel()
                 if self.debug:
                     print("Streaming task cancelled")
+                # Wait a moment for cancellation to take effect (can't await in sync method)
+                import time
+                start_wait = time.ticks_ms()
+                max_wait_ms = 500  # Max 500ms wait
+                while hasattr(task_to_cancel, "done") and not task_to_cancel.done():
+                    elapsed = time.ticks_diff(time.ticks_ms(), start_wait)
+                    if elapsed > max_wait_ms:
+                        if self.debug:
+                            print("Warning: Task cancellation timeout")
+                        break
+                    time.sleep(0.01)  # 10ms delay
+            
             # Remove from tasks list if it's there
-            if self._streaming_task in self._tasks:
-                self._tasks.remove(self._streaming_task)
+            if task_to_cancel in self._tasks:
+                self._tasks.remove(task_to_cancel)
             self._streaming_task = None
+            self._streaming_stopping = False
             return True
         except Exception as e:
             if self.debug:
                 print(f"Error stopping streaming: {e}")
             self._streaming_task = None
+            self._streaming_stopping = False
             return False
 
     def is_streaming(self):
+        # Don't report as streaming if we're in the process of stopping
+        if self._streaming_stopping:
+            return False
         if self._streaming_task is None:
             return False
         if hasattr(self._streaming_task, "done"):

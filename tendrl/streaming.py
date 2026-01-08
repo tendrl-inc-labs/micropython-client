@@ -2,6 +2,58 @@ import time
 import asyncio
 import gc
 
+# Define exceptions for queue compatibility
+# These don't exist in MicroPython asyncio, so we define them
+class QueueEmpty(Exception):
+    """Exception raised when queue is empty."""
+    pass
+
+class QueueFull(Exception):
+    """Exception raised when queue is full."""
+    pass
+
+# Make them available as asyncio.QueueEmpty and asyncio.QueueFull for compatibility
+asyncio.QueueEmpty = QueueEmpty
+asyncio.QueueFull = QueueFull
+
+class FrameQueue:
+    """Queue for push-mode streaming frames using deque."""
+    def __init__(self, maxsize=5):
+        from collections import deque
+        # deque in MicroPython requires maxlen as positional argument, not keyword
+        self._deque = deque((), maxsize)
+        self._maxsize = maxsize
+    
+    def put_nowait(self, item):
+        if len(self._deque) >= self._maxsize:
+            raise asyncio.QueueFull()
+        self._deque.append(item)
+    
+    def get_nowait(self):
+        if len(self._deque) == 0:
+            raise asyncio.QueueEmpty()
+        return self._deque.popleft()
+    
+    async def get(self, timeout=None):
+        # Poll with short sleeps until item available or timeout
+        start_time = time.time() if timeout else None
+        poll_interval = 0.01  # 10ms polling interval
+        
+        while True:
+            if len(self._deque) > 0:
+                return self._deque.popleft()
+            
+            if timeout is not None:
+                elapsed = time.time() - start_time
+                if elapsed >= timeout:
+                    raise asyncio.TimeoutError()
+                # Sleep for remaining time or poll interval, whichever is smaller
+                sleep_time = min(poll_interval, timeout - elapsed)
+            else:
+                sleep_time = poll_interval
+            
+            await asyncio.sleep(sleep_time)
+
 MAX_FPS = 30
 BOUNDARY = "tendrl"
 _FRAME_HEADER_PREFIX = f"--{BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ".encode('utf-8')
@@ -16,107 +68,138 @@ _STREAM_RECONNECT_DELAY = 1000
 _STREAM_YIELD_INTERVAL = 3
 
 class Stream:
-    """
-    Stream object for managing JPEG video streaming.
-    
-    Supports two modes:
-    - Pull mode: Uses capture_frame_func to automatically capture frames
-    - Push mode: User calls send_frame() to push frames into the stream
-    """
     def __init__(self, stream_loop_func, frame_queue=None, client_instance=None):
         self.frame_queue = frame_queue
         self.stream_loop_func = stream_loop_func
         self.client_instance = client_instance
         self.task = None
         self._started = False
-    
+
+    @staticmethod
+    def setup_default_camera(quality=70, framesize="QVGA", debug=False):
+        try:
+            import sensor
+        except ImportError:
+            raise ImportError(
+                "Camera capture function required. Either provide capture_frame_func, "
+                "or ensure sensor module is available for default camera support."
+            )
+
+        # Validate and map framesize parameter
+        if framesize is None or framesize.upper() == "QVGA":
+            framesize = sensor.QVGA
+            framesize_name = "QVGA"
+        elif framesize.upper() == "QQVGA":
+            framesize = sensor.QQVGA
+            framesize_name = "QQVGA"
+        elif framesize.upper() == "VGA":
+            framesize = sensor.VGA
+            framesize_name = "VGA"
+        else:
+            raise ValueError(
+                f"Invalid framesize '{framesize}'. Must be 'QQVGA', 'QVGA', or 'VGA'"
+            )
+
+        # Setup camera with optimized static settings
+        if debug:
+            print(f"Setting up camera: {framesize_name}, JPEG, Quality={quality}")
+        sensor.reset()
+        sensor.set_pixformat(sensor.JPEG)
+        sensor.set_framesize(framesize)
+        sensor.set_quality(quality)
+        sensor.skip_frames(time=1500)
+
+        # Create default capture function
+        def default_capture_frame():
+            img = sensor.snapshot()
+            return img.bytearray()
+
+        if debug:
+            print("Using default camera capture function")
+
+        return default_capture_frame
+
     async def send_frame(self, frame_data):
-        """
-        Push a frame into the stream (only works in push mode).
-        
-        Args:
-            frame_data: bytes or bytearray containing JPEG frame data
-            
-        Raises:
-            RuntimeError: If stream is not in push mode (no frame_queue) or stream has stopped
-            TypeError: If frame_data is not bytes or bytearray
-            ValueError: If frame_data is empty
-        """
         if self.frame_queue is None:
             raise RuntimeError(
                 "Stream not in push mode. Use accept_frames=True when creating stream, "
                 "or provide capture_frame_func for pull mode."
             )
-        
-        # Check if stream is still running
+
         if self.task is None or self.task.done():
             raise RuntimeError(
                 "Stream has stopped. The stream task is no longer running. "
                 "This can happen if stream_duration elapsed or the stream was stopped. "
                 "Create a new stream to continue sending frames."
             )
-        
-        # Validate frame data
+
         if not isinstance(frame_data, (bytes, bytearray)):
             raise TypeError(
                 f"frame_data must be bytes or bytearray, got {type(frame_data).__name__}"
             )
         if not frame_data or len(frame_data) == 0:
             raise ValueError("frame_data cannot be empty")
-        
-        # Put frame in queue (drop oldest if full for adaptive dropping)
+
         try:
             self.frame_queue.put_nowait(frame_data)
         except asyncio.QueueFull:
-            # Queue full - drop oldest frame to make room (adaptive dropping)
+
             try:
                 self.frame_queue.get_nowait()  # Drop oldest
                 self.frame_queue.put_nowait(frame_data)
             except:
-                # If get_nowait fails, queue might be empty (race condition)
-                # Try one more time to put
                 try:
                     self.frame_queue.put_nowait(frame_data)
                 except:
-                    pass  # Drop frame if still can't add
-    
+                    pass
+
     def start(self):
-        """
-        Start the stream loop as a background task.
-        Returns the task object.
-        """
-        if self._started:
+        # Prevent starting if already started and task is still running
+        if self._started and self.task is not None and not self.task.done():
+            if self.client_instance and self.client_instance.debug:
+                print("Stream already started and running, skipping duplicate start")
             return self.task
-        
+
+        # If task exists but is done, reset state
+        if self.task is not None and self.task.done():
+            self._started = False
+            self.task = None
+
         if self.client_instance and self.client_instance.mode == "async":
             try:
+                # Double-check that client doesn't already have a streaming task
+                if self.client_instance.is_streaming():
+                    if self.client_instance and self.client_instance.debug:
+                        print("Warning: Client already has a streaming task, cannot start new stream")
+                    return None
+                
                 stream_coro = self.stream_loop_func()
                 self.task = self.client_instance.add_background_task(stream_coro)
                 self._started = True
+                if self.client_instance and self.client_instance.debug:
+                    if self.frame_queue is not None:
+                        print("Streaming: Push mode stream started - send frames via stream.send_frame()")
+                    else:
+                        print("Streaming: Pull mode stream started - capturing frames automatically")
                 return self.task
             except Exception as e:
                 if self.client_instance and self.client_instance.debug:
                     print(f"Error starting stream: {e}")
+                self._started = False
+                self.task = None
                 return None
         else:
             if self.client_instance and self.client_instance.debug:
                 print("Warning: Streaming requires async mode. Use Client(mode='async')")
             return None
-    
+
     def stop(self):
-        """Stop the stream (cancel the background task)."""
         if self.task:
             self.task.cancel()
             self.task = None
         self._started = False
-    
+
     def is_running(self):
-        """
-        Check if the stream is currently running.
-        
-        Returns:
-            bool: True if stream is running, False otherwise
-        """
         return self.task is not None and not self.task.done()
 
 async def send_all_async(sock, data):
@@ -125,7 +208,7 @@ async def send_all_async(sock, data):
     sent_since_yield = 0
     consecutive_zeros = 0  # Track consecutive zero returns (indicates connection issue)
     max_consecutive_zeros = 10  # Max zero returns before raising error
-    
+
     # Cache socket method lookup for performance (avoid repeated hasattr checks)
     write_method = sock.write if hasattr(sock, "write") else (sock.send if hasattr(sock, "send") else None)
     if write_method is None:
@@ -141,7 +224,7 @@ async def send_all_async(sock, data):
                 sent += n
                 sent_since_yield += n
                 consecutive_zeros = 0  # Reset counter on successful write
-                
+
                 # Yield periodically after write to allow other tasks to run
                 # Only yield if threshold reached - no sleep to maximize throughput
                 if sent_since_yield >= _STREAM_YIELD_EVERY_BYTES:
@@ -168,51 +251,31 @@ async def send_all_async(sock, data):
             raise OSError(-1, f"Error during socket write: {exc}")
 
 async def send_bytes_chunked_async(sock, data):
-    # Optimization: For small data, send directly without chunking overhead
-    # For large data, send_all_async already handles efficient chunking internally
-    # This function now just delegates to send_all_async to avoid double-chunking
     await send_all_async(sock, data)
 
 async def send_jpeg_frame_async(sock, jpeg_data, perf_data=None):
-    # Build header efficiently using pre-encoded static parts
     header = _FRAME_HEADER_PREFIX + str(len(jpeg_data)).encode('utf-8') + _FRAME_HEADER_SUFFIX
-
-    # Throughput optimization: Combine header + first chunk of data to reduce syscalls
-    # This reduces the number of socket write operations, improving WiFi efficiency
-    # Only combine if first chunk is reasonably sized (not too large to avoid memory issues)
     t_frame_send = time.ticks_ms()
     try:
-        # Throughput optimization: Batch header with data to reduce syscalls
-        # For small frames: send header + data + terminator in one operation
-        # For large frames: send header + first chunk, then remaining chunks
         frame_size = len(jpeg_data)
         header_size = len(header)
         terminator_size = 2  # b"\r\n"
 
-        # Calculate how much data we can fit with header in first chunk
         max_first_chunk = _STREAM_CHUNK_SIZE - header_size - terminator_size
 
         if frame_size <= max_first_chunk:
-            # Small frame: send everything together (header + data + terminator)
-            # This is the most efficient - single syscall for entire frame
             combined = header + jpeg_data + b"\r\n"
             await send_all_async(sock, combined)
         else:
-            # Large frame: send header + first chunk together, then rest
-            # This reduces syscalls from 3 to 2 for most frames
             first_chunk_size = max_first_chunk if max_first_chunk > 0 else _STREAM_CHUNK_SIZE
-            # Send header + first chunk together
             combined = header + jpeg_data[:first_chunk_size]
             await send_all_async(sock, combined)
-            # Send remaining data + terminator
             remaining = jpeg_data[first_chunk_size:] + b"\r\n"
             await send_all_async(sock, remaining)
     except OSError as exc:
-        # Connection died during frame transmission - this is the "unexpected EOF" case
         raise OSError(-104, f"Connection reset during frame transmission: {exc}")
     t_frame_send_end = time.ticks_ms()
 
-    # Store frame send time (the bottleneck) - optimized: use running sum instead of list
     if perf_data:
         frame_send_time = time.ticks_diff(t_frame_send_end, t_frame_send)
         perf_data['frame_send_sum'] += frame_send_time
@@ -329,13 +392,22 @@ async def _send_first_frame(sock, capture_frame_func, frame_queue, server_host, 
     try:
         if frame_queue is not None:
             # Push mode: wait for first frame from queue with timeout
-            # Use 5 second timeout to prevent indefinite blocking if user doesn't send frames
+            # Use 10 second timeout to give user time to send first frame
+            # (increased from 5 seconds to be more forgiving)
+            if debug:
+                print("Streaming: Waiting for first frame in push mode (10 second timeout)...")
+                print("Streaming: TIP - Send a frame immediately after starting the stream")
             try:
-                first_frame = await asyncio.wait_for(frame_queue.get(), timeout=5.0)
+                first_frame = await asyncio.wait_for(frame_queue.get(), timeout=10.0)
+                if debug:
+                    print(f"Streaming: Received first frame ({len(first_frame)} bytes)")
             except asyncio.TimeoutError:
+                if debug:
+                    print("Streaming: ERROR - No frame received within 10 seconds in push mode")
+                    print("Streaming: Make sure to call stream.send_frame() immediately after starting")
                 raise RuntimeError(
-                    "No frame received within 5 seconds in push mode. "
-                    "Ensure you call stream.send_frame() after starting the stream."
+                    "No frame received within 10 seconds in push mode. "
+                    "Ensure you call stream.send_frame() immediately after starting the stream."
                 )
         else:
             # Pull mode: call capture function
@@ -515,7 +587,11 @@ def start_jpeg_stream(client_instance, capture_frame_func=None, target_fps=15,
             try:
                 # Connect to server
                 try:
+                    if debug:
+                        print("Streaming: Connecting to server...")
                     s = await _connect_to_server(server_host, port, debug=debug)
+                    if debug:
+                        print("Streaming: Connected to server")
                 except Exception:
                     await asyncio.sleep(_STREAM_RECONNECT_DELAY / 1000.0)
                     continue
@@ -530,8 +606,12 @@ def start_jpeg_stream(client_instance, capture_frame_func=None, target_fps=15,
                         s, capture_frame_func, frame_queue, server_host, api_key,
                         debug=debug
                     )
-                except Exception:
+                    if debug:
+                        print("Streaming: First frame sent successfully, stream is active")
+                except Exception as e:
                     # If first frame fails, close socket and retry connection
+                    if debug:
+                        print(f"Streaming: Error sending first frame: {e}")
                     try:
                         s.close()
                     except:
@@ -750,8 +830,6 @@ def start_jpeg_stream(client_instance, capture_frame_func=None, target_fps=15,
                             # Uses pre-calculated min_delay_s to avoid repeated calculation
                             await asyncio.sleep(min_delay_s)
 
-                    # Print performance statistics periodically (only if debug enabled)
-                    # Optimized: use running sums instead of lists to reduce overhead
                     if debug and frame_count % 60 == 0:  # Every 60 frames (~2.4s at 25 FPS)
                         elapsed_stats = time.ticks_diff(time.ticks_ms(), perf_data['last_stats_time'])
                         frames_in_period = frame_count - perf_data['last_stats_frame']
@@ -810,18 +888,37 @@ def start_jpeg_stream(client_instance, capture_frame_func=None, target_fps=15,
                         err_msg = _format_connection_error_message(errno)
                         if err_msg:
                             print(f"Stream error: {err_msg}")
+                    else:
+                        print(f"Stream: Connection reset (expected), reconnecting...")
+            except asyncio.CancelledError:
+                # Stream was cancelled - exit gracefully
+                if debug:
+                    print("Stream: Task cancelled, exiting stream loop")
+                break  # Exit the outer loop, don't reconnect
             except Exception as e:
                 if debug:
                     print(f"Stream ended: {e} (type: {type(e).__name__})")
 
             finally:
-                # Close socket if it was created
                 try:
                     if s:
                         s.close()
                 except Exception:
                     pass
                 s = None
+
+            # Check if task was cancelled before reconnecting
+            # If cancelled, exit the loop instead of reconnecting
+            try:
+                # Yield to allow cancellation to be processed
+                await asyncio.sleep(0)
+                # Check if we should exit (task cancelled)
+                # In MicroPython, we can't easily check if task is cancelled from within,
+                # so we'll rely on CancelledError being raised
+            except asyncio.CancelledError:
+                if debug:
+                    print("Stream: Task cancelled during reconnect wait, exiting")
+                break  # Exit the outer loop
 
             # Wait before reconnecting
             await asyncio.sleep(_STREAM_RECONNECT_DELAY / 1000.0)

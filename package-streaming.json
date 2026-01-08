@@ -9,14 +9,16 @@
         "url": "https://github.com/tendrl-inc-labs/micropython-client"
     },
     "files": [
-        "tendrl/streaming.py"
+        "tendrl/streaming.py",
+        "tendrl/utils/async_queue.py"
     ],
     "dependencies": [],
     "micropython": {
         "version": ">=1.19.0"
     },
     "urls": [
-        ["tendrl/streaming.py", "github:tendrl-inc-labs/micropython-client/tendrl/streaming.py"]
+        ["tendrl/streaming.py", "github:tendrl-inc-labs/micropython-client/tendrl/streaming.py"],
+        ["tendrl/utils/async_queue.py", "github:tendrl-inc-labs/micropython-client/tendrl/utils/async_queue.py"]
     ]
 }
 

@@ -60,7 +60,7 @@ The Tendrl SDK offers two installation options to suit different device constrai
 | **TTL Management** | ✅ | ❌ |
 | **Rich Queries** | ✅ | ❌ |
 | **Flash Storage** | ~131KB | ~94KB |
-| **Flash Storage (with streaming)** | ~164KB | ~127KB |
+| **Flash Storage (with streaming)** | ~169KB | ~132KB |
 
  &nbsp;
 
@@ -83,7 +83,7 @@ The Tendrl SDK offers two installation options to suit different device constrai
 
 - Streaming requires a separate installation step
 - Works with both minimal and full installations
-- Adds ~33KB to flash storage
+- Adds ~38KB to flash storage (includes async_queue utility for MicroPython compatibility)
 - See installation instructions below
 
 ### Option 1: Using the Install Script (Recommended)
@@ -104,7 +104,7 @@ INSTALL_DB = False  # Minimal installation without database
 
 INSTALL_STREAMING = True   # Set to True to include JPEG streaming support (optional)
 # OR
-INSTALL_STREAMING = False  # Default: No streaming (saves ~33KB flash)
+INSTALL_STREAMING = False  # Default: No streaming (saves ~38KB flash)
 ```
 
 **Step 3**: Run the script on your device:
@@ -160,8 +160,9 @@ mip.install("github:tendrl-inc-labs/micropython-client/package-streaming.json", 
 
 **Manual Installation:**
 - Copy `tendrl/streaming.py` to `/lib/tendrl/streaming.py` on your device
+- Copy `tendrl/utils/async_queue.py` to `/lib/tendrl/utils/async_queue.py` on your device (required for push mode streaming)
 
-**Note:** Streaming adds ~33KB to flash storage and works with both minimal and full installations.
+**Note:** Streaming adds ~38KB to flash storage (includes `async_queue.py` utility for MicroPython compatibility) and works with both minimal and full installations.
 
 ### Client Configuration by Installation Type
 
@@ -777,11 +778,12 @@ asyncio.run(main())
 
 ### Streaming Requirements
 
-- **Streaming Module Installed**: Requires `tendrl/streaming.py` to be installed (see [Installing JPEG Streaming](#installing-jpeg-streaming-optional))
+- **Streaming Module Installed**: Requires `tendrl/streaming.py` and `tendrl/utils/async_queue.py` to be installed (see [Installing JPEG Streaming](#installing-jpeg-streaming-optional))
 - **Async Mode**: Must use `Client(mode="async")`
 - **Camera Support**: Requires `sensor` module (OpenMV) or custom capture function
 - **Network Connection**: Requires active network connection
 - **API Key**: Must be configured in `config.json`
+- **MicroPython Compatibility**: The streaming module includes `async_queue.py` utility to provide `asyncio.Queue` compatibility for MicroPython implementations that don't include it
 
 ### Streaming Methods
 
@@ -1113,6 +1115,26 @@ These settings are optimized for streaming performance. The `quality` parameter 
 
 For custom camera configurations, provide your own `capture_frame_func` that handles camera setup and frame capture.
 
+**Advanced: Manual Camera Setup**
+
+If you need to set up the camera separately before creating a capture function, you can use `Stream.setup_default_camera()`:
+
+```python
+from tendrl.streaming import Stream
+
+# Setup camera and get capture function
+capture_func = Stream.setup_default_camera(
+    quality=70,
+    framesize="QVGA",
+    debug=True
+)
+
+# Use with streaming
+stream = client.start_streaming(capture_frame_func=capture_func)
+```
+
+This is useful when you need to set up the camera once and reuse the capture function, or when integrating with other camera-dependent code.
+
 ### Streaming Configuration
 
 The streaming implementation uses cooperative multitasking with optimized internal parameters:
@@ -1267,7 +1289,7 @@ print(f"Free memory: {free_mem} bytes")
 **Storage (Flash):**
 - **Minimal Package:** ~94 KB (without database features)
 - **Full Package:** ~131 KB (with MicroTetherDB database)
-- **Streaming Module:** ~33 KB (optional, adds to either package)
+- **Streaming Module:** ~38 KB (optional, includes async_queue utility for MicroPython compatibility, adds to either package)
 
 **Note:** ESP32-WROOM without PSRAM may experience TLS connection failures due to memory fragmentation, even with sufficient total RAM. TLS handshakes require large contiguous memory blocks (20-40 KB) that may not be available after heap fragmentation.
 
