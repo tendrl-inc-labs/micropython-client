@@ -372,49 +372,58 @@ class Client:
                     self._process_offline_queue()
                 return
 
-            try:
-                batch = self.queue.process_batch()
-                if batch:
-                    try:
-                        success = self.mqtt.send_batch(batch)
-                        if not success:
+            # Process outgoing message queue (if any)
+            if self.queue:
+                try:
+                    batch = self.queue.process_batch()
+                    if batch:
+                        try:
+                            success = self.mqtt.send_batch(batch)
+                            if not success:
+                                self.client_enabled = False
+                                if self.debug:
+                                    print("Batch send failed")
+                            else:
+                                did_work = True
+                                if self.debug:
+                                    print(f"Batch sent successfully: {len(batch)} messages")
+                        except Exception as batch_err:
+                            if self.debug:
+                                print(f"Error sending batch: {batch_err}")
+                            for msg in batch:
+                                self._store_offline_message(msg)
                             self.client_enabled = False
-                            if self.debug:
-                                print("Batch send failed")
-                        else:
-                            did_work = True
-                            if self.debug:
-                                print(f"Batch sent successfully: {len(batch)} messages")
-                    except Exception as batch_err:
-                        if self.debug:
-                            print(f"Error sending batch: {batch_err}")
-                        for msg in batch:
-                            self._store_offline_message(msg)
-                        self.client_enabled = False
-                        return
-            except Exception as queue_err:
-                if self.debug:
-                    print(f"Queue processing error: {queue_err}")
-                return
+                            # Continue to message check even if batch send failed
+                except Exception as queue_err:
+                    if self.debug:
+                        print(f"Queue processing error: {queue_err}")
+                    # Continue to message check even if queue processing failed
 
             # Message check (check_msg_rate seconds, convert to ms)
-            check_msg_rate_ms = self.check_msg_rate * 1000
-            if self._last_msg_check_ticks == 0 or time.ticks_diff(current_ticks, self._last_msg_check_ticks) >= check_msg_rate_ms:
-                try:
-                    self._last_msg_check_ticks = current_ticks
-                    # Still use time.time() for absolute timestamp if needed
-                    self._last_msg_check = time.time()
-                    # check_messages() processes messages via callback, returns True on success
-                    success = self.mqtt.check_messages()
-                    if success:
-                        did_work = True
-                    else:
-                        # If check failed, mark as disconnected
+            # This should always run regardless of queue processing state
+            if self.mqtt:
+                check_msg_rate_ms = self.check_msg_rate * 1000
+                time_since_last_check = time.ticks_diff(current_ticks, self._last_msg_check_ticks) if self._last_msg_check_ticks > 0 else 0
+                should_check = self._last_msg_check_ticks == 0 or time_since_last_check >= check_msg_rate_ms
+
+                if should_check:
+                    try:
+                        self._last_msg_check_ticks = current_ticks
+                        # Still use time.time() for absolute timestamp if needed
+                        self._last_msg_check = time.time()
+                        # check_messages() processes messages via callback, returns True on success
+                        success = self.mqtt.check_messages()
+                        if success:
+                            did_work = True
+                        else:
+                            # If check failed, mark as disconnected
+                            if self.debug:
+                                print("Message check failed - marking as disconnected")
+                            self.client_enabled, self.mqtt.connected = False, False
+                    except Exception as check_msg_err:
+                        if self.debug:
+                            print(f"Check messages error: {check_msg_err}")
                         self.client_enabled, self.mqtt.connected = False, False
-                except Exception as check_msg_err:
-                    if self.debug:
-                        print(f"Check messages error: {check_msg_err}")
-                    self.client_enabled, self.mqtt.connected = False, False
 
             # Cleanup check (60 seconds = 60000ms)
             if self._last_cleanup_ticks == 0 or time.ticks_diff(current_ticks, self._last_cleanup_ticks) >= 60000:

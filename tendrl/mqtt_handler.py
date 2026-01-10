@@ -43,6 +43,8 @@ class MQTTHandler:
         # Cache topics to avoid repeated string operations (performance optimization)
         self._publish_topic = None
         self._messages_topic = None
+        # Track subscription state to detect when re-subscription is needed
+        self._subscribed = False
 
     def _fetch_entity_info(self):
         try:
@@ -185,6 +187,7 @@ class MQTTHandler:
 
     def connect(self):
         self.connected = False
+        self._subscribed = False  # Reset subscription state on new connection
         self._consecutive_errors = 0
 
         if not self._fetch_entity_info():
@@ -329,9 +332,11 @@ class MQTTHandler:
 
                     try:
                         self._subscribe_to_topics()
+                        self._subscribed = True  # Mark as subscribed after successful subscription
                     except Exception as sub_err:
                         if self.debug:
                             print(f"Subscription warning (non-critical): {sub_err}")
+                        self._subscribed = False
 
                     if self.debug:
                         print(f"MQTT connected successfully to {mqtt_host}")
@@ -347,6 +352,7 @@ class MQTTHandler:
 
             self._mqtt = None
             self.connected = False
+            self._subscribed = False
             if self.debug:
                 print("All MQTT connection attempts failed")
             return False
@@ -356,13 +362,14 @@ class MQTTHandler:
                 print(f"Critical MQTT connection failure: {overall_err}")
             self._mqtt = None
             self.connected = False
+            self._subscribed = False
             return False
 
     def _subscribe_to_topics(self):
         if not self._mqtt or not self.connected:
             if self.debug:
                 print("Cannot subscribe - MQTT not connected")
-            return
+            return False
 
         try:
             # Subscribe to messages topic to receive commands/notifications
@@ -371,10 +378,12 @@ class MQTTHandler:
 
             if self.debug:
                 print(f"Subscribed to messages topic: {messages_topic}")
+            return True
 
         except Exception as e:
             if self.debug:
                 print(f"Error subscribing to topics: {e}")
+            return False
 
     def _on_message(self, topic, msg):
         try:
@@ -400,6 +409,7 @@ class MQTTHandler:
 
     def _try_reconnect(self):
         self.connected = False
+        self._subscribed = False  # Reset subscription state on manual reconnect
         try:
             if self._mqtt:
                 self._mqtt.disconnect()
@@ -428,12 +438,28 @@ class MQTTHandler:
             self._mqtt.publish(topic, p)
             # If publish succeeds, we're connected (robust handles reconnection)
             self.connected = True
+            
+            # Check if we need to re-subscribe (umqtt.robust uses CleanSession=True, so subscriptions are lost)
+            # Check actual connection state to detect if robust reconnected
+            is_actually_connected = False
+            if hasattr(self._mqtt, 'sock') and self._mqtt.sock is not None:
+                is_actually_connected = True
+            elif hasattr(self._mqtt, 'isconnected') and callable(self._mqtt.isconnected):
+                is_actually_connected = self._mqtt.isconnected()
+            
+            # Re-subscribe if we're connected but not subscribed (robust may have reconnected)
+            if is_actually_connected and not self._subscribed:
+                if self.debug:
+                    print("Re-subscribing after reconnection detected in publish...")
+                if self._subscribe_to_topics():
+                    self._subscribed = True
             return True, False
         except Exception as e:
             if self.debug:
                 print(f"Error in publish_message: {e}")
             # Mark as disconnected - robust will attempt reconnection on next operation
             self.connected = False
+            self._subscribed = False  # Reset subscription state on error
             return False, True
 
     def _chunk_messages(self, messages):
@@ -525,17 +551,48 @@ class MQTTHandler:
             return False
 
         try:
+            # Check actual connection state before check_msg (umqtt.robust may have reconnected automatically)
+            # umqtt.robust uses CleanSession=True, so subscriptions are lost on disconnect
+            # We need to re-subscribe after any reconnection
+            was_connected_before = self.connected
+            is_actually_connected = False
+            if hasattr(self._mqtt, 'sock') and self._mqtt.sock is not None:
+                is_actually_connected = True
+            elif hasattr(self._mqtt, 'isconnected') and callable(self._mqtt.isconnected):
+                is_actually_connected = self._mqtt.isconnected()
+            
+            # If we're connected but not subscribed, re-subscribe
+            # This handles the case where umqtt.robust reconnected automatically
+            if is_actually_connected and not self._subscribed:
+                if self.debug:
+                    print("Connection detected but not subscribed - re-subscribing...")
+                if self._subscribe_to_topics():
+                    self._subscribed = True
+                else:
+                    # Subscription failed, mark as not subscribed
+                    self._subscribed = False
+            
             # check_msg() returns None but processes messages via callback
             # umqtt.robust will automatically reconnect if connection is lost
             self._mqtt.check_msg()
-            # If check_msg succeeds, we're connected
+            # If check_msg succeeds, we're connected (robust may have reconnected during check_msg)
             self.connected = True
+            
+            # After check_msg, check again if we need to re-subscribe
+            # (check_msg might have triggered a reconnection)
+            if self.connected and not self._subscribed:
+                if self.debug:
+                    print("Re-subscribing after check_msg (reconnection detected)...")
+                if self._subscribe_to_topics():
+                    self._subscribed = True
+            
             return True
         except Exception as e:
             if self.debug:
                 print(f"Error checking messages: {e}")
             # Mark as disconnected - robust will attempt reconnection on next operation
             self.connected = False
+            self._subscribed = False  # Reset subscription state on error
             return False
 
     def cleanup(self):
@@ -544,6 +601,7 @@ class MQTTHandler:
                 self._mqtt.disconnect()
                 self._mqtt = None
             self.connected = False
+            self._subscribed = False
         except Exception as e:
             if self.debug:
                 print(f"Error during MQTT cleanup: {e}")
