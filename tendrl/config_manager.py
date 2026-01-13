@@ -115,12 +115,21 @@ def update_entity_cache(api_key_id="", subject=""):
         print(f"Error updating entity cache: {e}")
         return False
 
-def get_entity_cache():
-    """Get cached entity info from separate cache file"""
+def get_entity_cache(ttl_hours=24):
     try:
         cache_file = f"{_ROOT_DIR}/lib/tendrl/entity_cache.json"
         with open(cache_file, "r", encoding="utf-8") as f:
             cache_data = json.load(f)
+
+            # Check TTL if enabled (ttl_hours > 0)
+            if ttl_hours and ttl_hours > 0:
+                cached_at = cache_data.get("cached_at")
+                if cached_at:
+                    age_hours = (time.time() - cached_at) / 3600.0
+                    if age_hours > ttl_hours:
+                        # Cache expired - return None to trigger refresh
+                        return None, None
+
             return cache_data.get("api_key_id"), cache_data.get("subject")
     except (OSError, ValueError):
         return None, None

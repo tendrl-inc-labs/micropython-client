@@ -251,6 +251,8 @@ class Client:
 
                 # Only connect MQTT if it's enabled
                 if self.mqtt:
+                    time.sleep(1.0)  # Give network stack time to fully initialize
+
                     if self.mqtt.connect():
                         self.client_enabled = True
                         if self.debug:
@@ -804,7 +806,6 @@ class Client:
                 # Check if we need to wait for connection
                 if not self.mqtt or not self.mqtt.connected:
                     if self.debug:
-                        print("MQTT not connected - will wait for connection in stream loop")
             else:
                 # In sync mode, try to connect now
                 if not self._connect():
@@ -899,8 +900,10 @@ class Client:
 
             if not self.client_enabled:
                 if not self._connect():
+                    # Connection failed - this is normal during initialization
+                    # Connection will be retried automatically
                     if self.debug:
-                        print("Failed to establish connection")
+                        print("Connection attempt failed (will retry)")
                     return None
 
             if not isinstance(data, dict):

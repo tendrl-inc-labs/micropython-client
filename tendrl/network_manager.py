@@ -30,8 +30,10 @@ class NetworkManager:
                     )
                 
                 if not self._station or not self._station.isconnected():
+                    # Network connection failed - this is normal on first attempt
+                    # Connection will be retried by the client
                     if self.debug:
-                        print("Failed to establish network connection")
+                        print("Network connection attempt failed (will retry)")
                     return None
                 try:
                     ntp_time()

@@ -45,6 +45,11 @@ class MQTTHandler:
         self._messages_topic = None
         # Track subscription state to detect when re-subscription is needed
         self._subscribed = False
+        # Cache is_openmv() result (performance optimization - avoids repeated function calls)
+        self._is_openmv = is_openmv()
+        # Cache connection check methods (performance optimization - avoids repeated hasattr() calls)
+        self._check_connected_sock = None  # Will be set to method if available
+        self._check_connected_callable = None  # Will be set to callable if available
 
     def _fetch_entity_info(self):
         try:
@@ -55,11 +60,11 @@ class MQTTHandler:
                 return False
 
             # Try to get cached entity info from separate cache file
+            # If cache exists, use it immediately - no HTTP call needed
             cached_api_key_id, cached_subject = get_entity_cache()
 
             if cached_api_key_id and cached_subject:
-                if self.debug:
-                    print("Using cached entity info")
+                # Cache hit - use cached values silently (no HTTP call needed)
                 self.entity_info = {
                     'jti': cached_api_key_id,
                     'sub': cached_subject
@@ -69,6 +74,8 @@ class MQTTHandler:
                 self._messages_topic = None
                 return True
 
+            # Cache miss - need to fetch from API
+            # This HTTP call only happens when cache is missing or expired 
             api_base_url = self.config.get("app_url", "https://app.tendrl.com")
 
             # Ensure the URL has a protocol prefix
@@ -86,12 +93,54 @@ class MQTTHandler:
             if client_version:
                 url = f'{url}?e_type={client_version}'
 
+            time.sleep(1.0)  # Give DNS/HTTP stack time to fully initialize
+
             gc.collect()
-            response = requests.get(url, headers=headers)
+            # Retry logic for entity info fetch (handles DNS/network initialization delays)
+            max_retries = 3
+            response = None
+            last_error = None
+            for attempt in range(max_retries):
+                try:
+                    response = requests.get(url, headers=headers)
+                    # Success - only log if this was a retry
+                    if attempt > 0 and self.debug:
+                        print(f"Entity info fetched successfully on attempt {attempt + 1}")
+                    break  # Success, exit retry loop
+                except Exception as http_err:
+                    last_error = http_err
+                    # Check if this is a retryable error (DNS/network initialization issues)
+                    is_retryable = (
+                        "ETIMEDOUT" in str(http_err) or 
+                        "timeout" in str(http_err).lower() or 
+                        "116" in str(http_err) or
+                        "-2" in str(http_err) or  # ENOENT - DNS resolution failed
+                        "ENOENT" in str(http_err)
+                    )
+                    
+                    if attempt < max_retries - 1 and is_retryable:
+                        # Retryable error - wait and retry silently (only log in debug mode)
+                        if self.debug:
+                            print(f"Entity info fetch attempt {attempt + 1} failed (retrying): {http_err}")
+                        time.sleep(1.0 + attempt * 0.5)  # Progressive backoff: 1s, 1.5s, 2s
+                        continue
+                    else:
+                        # Not retryable or last attempt - will be handled below
+                        if not is_retryable:
+                            # Non-retryable error - raise immediately
+                            raise
+                        # Last attempt failed - will raise after loop
+
+            # If we exhausted retries without success, raise the last error
+            if response is None and last_error:
+                # Only log final failure (not intermediate retries)
+                if self.debug:
+                    print(f"Entity info fetch failed after {max_retries} attempts: {last_error}")
+                raise last_error
 
             if response.status_code == 200:
                 gc.collect()
-                time.sleep(1)
+                time.sleep(.3)
                 entity_info = response.json()
 
                 # Cache entity info
@@ -110,12 +159,15 @@ class MQTTHandler:
                 self._messages_topic = None
                 return True
             else:
+                # HTTP error status - log only in debug mode
                 if self.debug:
-                    print(f"Failed to fetch entity info: {response.status_code}")
+                    print(f"Entity info fetch failed: HTTP {response.status_code}")
                 return False
         except Exception as e:
+            # Exception already handled in retry logic above
+            # Only log here if it wasn't a retryable error or if debug is enabled
             if self.debug:
-                print(f"Entity info fetch error: {e}")
+                print(f"Entity info fetch failed: {e}")
             return False
 
 
@@ -190,19 +242,22 @@ class MQTTHandler:
         self._subscribed = False  # Reset subscription state on new connection
         self._consecutive_errors = 0
 
+        # Critical: Fetch entity info BEFORE attempting MQTT connection
+        # MQTT connection requires entity info (jti, sub) for authentication and topic construction
+        # If entity info fetch fails, MQTT connection cannot proceed
         if not self._fetch_entity_info():
-            if self.debug:
-                print("Failed to fetch entity information")
+            # Error already logged in _fetch_entity_info() if debug enabled
             return False
 
-        if not self.entity_info.get('jti'):
+        # Validate entity info is available before proceeding with MQTT connection
+        if not self.entity_info or not self.entity_info.get('jti'):
             if self.debug:
-                print("API key ID not found in API claims. Check your API key.")
+                print("API key ID not found in entity info. Check your API key.")
             return False
 
         if not self.entity_info.get('sub'):
             if self.debug:
-                print("Subject not found in API claims.")
+                print("Subject not found in entity info.")
             return False
 
         mqtt_host = self.config.get("mqtt_host")
@@ -225,21 +280,40 @@ class MQTTHandler:
         username = self.entity_info['jti']
         password = api_key
 
+        # Verify DNS is ready before attempting MQTT connection
+        # This prevents -2 (ENOENT) errors that occur when DNS isn't ready
+        def _verify_dns_ready(hostname, max_attempts=5, delay=0.5):
+            """Verify DNS resolution is working for the given hostname"""
+            import socket
+            for attempt in range(max_attempts):
+                try:
+                    socket.getaddrinfo(hostname, mqtt_port)
+                    return True  # DNS is ready
+                except OSError:
+                    if attempt < max_attempts - 1:
+                        time.sleep(delay)
+                        continue
+                    # DNS still not ready after all attempts
+                    if self.debug:
+                        print(f"DNS not ready for {hostname} after {max_attempts} attempts")
+                    return False
+            return False
+
         try:
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    # On first attempt, allow time for DNS resolution and SSL stack initialization
-                    # DNS resolution can fail on first attempt if network stack isn't fully ready
-                    # Do this BEFORE cleaning up old client to give network stack time to initialize
+                    # On first attempt, verify DNS is ready before proceeding
                     if attempt == 0:
-                        # Longer delay to allow DNS resolution to initialize
-                        # This helps avoid ENOENT (-2) errors on first connection
-                        time.sleep(1.0)
+                        # Verify DNS is ready - this prevents -2 errors
+                        if not _verify_dns_ready(mqtt_host):
+                            # DNS not ready - wait and retry
+                            time.sleep(1.0)
+                            continue
 
-                        # For OpenMV with SSL, also allow SSL stack initialization time
-                        if is_openmv() and mqtt_ssl:
-                            time.sleep(2.0)  # Increased time for SSL context initialization on OpenMV
+                        # For OpenMV with SSL, allow SSL stack initialization time
+                        if self._is_openmv and mqtt_ssl:
+                            time.sleep(0.5)  # SSL context initialization on OpenMV
                     elif attempt > 0:
                         # After a failed attempt, wait longer before retrying
                         # This is especially important after timeout errors
@@ -257,8 +331,13 @@ class MQTTHandler:
                             if hasattr(self._mqtt, 'disconnect'):
                                 # Check if client is connected before trying to disconnect
                                 # This avoids errors when socket is None
+                                # Performance optimization: Use cached check methods if available
                                 is_connected = False
-                                if hasattr(self._mqtt, 'sock') and self._mqtt.sock is not None:
+                                if self._check_connected_sock:
+                                    is_connected = self._check_connected_sock()
+                                elif self._check_connected_callable:
+                                    is_connected = self._check_connected_callable()
+                                elif hasattr(self._mqtt, 'sock') and self._mqtt.sock is not None:
                                     is_connected = True
                                 elif hasattr(self._mqtt, 'isconnected') and callable(self._mqtt.isconnected):
                                     is_connected = self._mqtt.isconnected()
@@ -277,6 +356,9 @@ class MQTTHandler:
                         finally:
                             # Always clear the reference after attempting disconnect
                             self._mqtt = None
+                            # Clear cached connection check methods when client is cleared
+                            self._check_connected_sock = None
+                            self._check_connected_callable = None
 
                     # Build MQTT client parameters conditionally
                     # umqtt.robust supports ssl/ssl_params, but mqtt(openMV) does not have ssl param
@@ -291,7 +373,7 @@ class MQTTHandler:
 
                     # Add socket timeout for OpenMV (SSL handshake can take time)
                     # Some MQTT implementations support socket_timeout parameter
-                    if is_openmv() and mqtt_ssl:
+                    if self._is_openmv and mqtt_ssl:
                         # OpenMV MQTT client may support socket_timeout
                         # This helps prevent ETIMEDOUT during SSL handshake
                         # Try adding socket_timeout - if client doesn't support it, will fail during construction
@@ -326,6 +408,18 @@ class MQTTHandler:
                     self._mqtt.connect()
                     gc.collect()
 
+                    # Cache connection check methods (performance optimization - avoids repeated hasattr() calls)
+                    # Check once and cache the methods for fast access in hot paths
+                    if hasattr(self._mqtt, 'sock'):
+                        self._check_connected_sock = lambda: self._mqtt.sock is not None
+                    else:
+                        self._check_connected_sock = None
+                    
+                    if hasattr(self._mqtt, 'isconnected') and callable(self._mqtt.isconnected):
+                        self._check_connected_callable = self._mqtt.isconnected
+                    else:
+                        self._check_connected_callable = None
+
                     # Set connection status before attempting subscription
                     self.connected = True
                     self._consecutive_errors = 0
@@ -343,9 +437,11 @@ class MQTTHandler:
                     return True
 
                 except MQTTException as mqtt_err:
+                    # MQTT connection errors are expected during retries - only log in debug mode
                     if self.debug:
-                        print(f"MQTT connection error (Attempt {attempt + 1}): {mqtt_err}")
-                        print(f"   Host: {mqtt_host}, Port: {mqtt_port}")
+                        # Only show detailed error on first attempt or if it's the last attempt
+                        if attempt == 0 or attempt == max_retries - 1:
+                            print(f"MQTT connection attempt {attempt + 1} failed: {mqtt_err}")
                     self.connected = False
                     # Don't sleep here - delay is handled before the retry attempt
                     continue
@@ -358,8 +454,22 @@ class MQTTHandler:
             return False
 
         except Exception as overall_err:
+            # Check if this is a retryable error (DNS/network initialization)
+            is_retryable = (
+                "-2" in str(overall_err) or  # ENOENT - DNS resolution failed
+                "ENOENT" in str(overall_err) or
+                "ETIMEDOUT" in str(overall_err) or
+                "timeout" in str(overall_err).lower() or
+                "116" in str(overall_err)
+            )
+            
             if self.debug:
-                print(f"Critical MQTT connection failure: {overall_err}")
+                if is_retryable:
+                    # Retryable errors are expected during initialization - less alarming message
+                    print(f"MQTT connection error (will retry): {overall_err}")
+                else:
+                    # Non-retryable errors are actual problems
+                    print(f"MQTT connection failure: {overall_err}")
             self._mqtt = None
             self.connected = False
             self._subscribed = False
@@ -431,8 +541,11 @@ class MQTTHandler:
 
         try:
             p = json.dumps(data)
-            # Always use the publish topic
-            topic = self._build_publish_topic()
+            # Performance optimization: Use cached topic directly instead of function call
+            # Build topic if not cached (first call or after entity_info change)
+            if self._publish_topic is None:
+                self._publish_topic = self._build_publish_topic()
+            topic = self._publish_topic
 
             # umqtt.robust will automatically reconnect if connection is lost
             self._mqtt.publish(topic, p)
@@ -440,12 +553,12 @@ class MQTTHandler:
             self.connected = True
             
             # Check if we need to re-subscribe (umqtt.robust uses CleanSession=True, so subscriptions are lost)
-            # Check actual connection state to detect if robust reconnected
+            # Performance optimization: Use cached connection check methods instead of hasattr()
             is_actually_connected = False
-            if hasattr(self._mqtt, 'sock') and self._mqtt.sock is not None:
-                is_actually_connected = True
-            elif hasattr(self._mqtt, 'isconnected') and callable(self._mqtt.isconnected):
-                is_actually_connected = self._mqtt.isconnected()
+            if self._check_connected_sock:
+                is_actually_connected = self._check_connected_sock()
+            elif self._check_connected_callable:
+                is_actually_connected = self._check_connected_callable()
             
             # Re-subscribe if we're connected but not subscribed (robust may have reconnected)
             if is_actually_connected and not self._subscribed:
@@ -480,19 +593,34 @@ class MQTTHandler:
                 # This avoids expensive json.dumps() + encode() calls
                 estimated_size = 100  # Base JSON structure overhead
                 for k, v in msg.items():
-                    k_str = str(k)
+                    # Performance optimization: Avoid str() conversion for keys if already string
+                    # Most keys are strings, so check type first
+                    if isinstance(k, str):
+                        k_len = len(k)
+                    else:
+                        k_len = len(str(k))
+                    
                     # Estimate value size without json.dumps() for nested structures
                     if isinstance(v, (dict, list)):
                         # Rough estimate for nested: count items * average size
                         v_size = 50  # Conservative estimate for nested structures
+                    elif isinstance(v, str):
+                        # Performance optimization: Avoid str() conversion for string values
+                        v_size = len(v)
+                    elif isinstance(v, (int, float, bool)) or v is None:
+                        # Performance optimization: Estimate common types without conversion
+                        # int/float: ~10-20 chars, bool: 4-5 chars, None: 4 chars
+                        v_size = 15  # Conservative estimate
                     else:
-                        v_str = str(v)
-                        v_size = len(v_str)
-                    estimated_size += len(k_str) + v_size + 10  # Key + value + JSON overhead
+                        # Only convert to string for other types
+                        v_size = len(str(v))
+                    estimated_size += k_len + v_size + 10  # Key + value + JSON overhead
+            elif isinstance(msg, str):
+                # Performance optimization: Avoid str() conversion for string messages
+                estimated_size = len(msg) + 10  # String + JSON overhead
             else:
-                # For strings, estimate is just string length + JSON quotes
-                msg_str = str(msg)
-                estimated_size = len(msg_str) + 10  # String + JSON overhead
+                # For other types, convert to string
+                estimated_size = len(str(msg)) + 10  # String + JSON overhead
 
             if (current_size + estimated_size > self._max_batch_size or
                 len(current_chunk) >= self._max_messages_per_batch):
@@ -551,26 +679,15 @@ class MQTTHandler:
             return False
 
         try:
+            # Performance optimization: Use cached connection check methods instead of hasattr()
             # Check actual connection state before check_msg (umqtt.robust may have reconnected automatically)
             # umqtt.robust uses CleanSession=True, so subscriptions are lost on disconnect
             # We need to re-subscribe after any reconnection
-            was_connected_before = self.connected
             is_actually_connected = False
-            if hasattr(self._mqtt, 'sock') and self._mqtt.sock is not None:
-                is_actually_connected = True
-            elif hasattr(self._mqtt, 'isconnected') and callable(self._mqtt.isconnected):
-                is_actually_connected = self._mqtt.isconnected()
-            
-            # If we're connected but not subscribed, re-subscribe
-            # This handles the case where umqtt.robust reconnected automatically
-            if is_actually_connected and not self._subscribed:
-                if self.debug:
-                    print("Connection detected but not subscribed - re-subscribing...")
-                if self._subscribe_to_topics():
-                    self._subscribed = True
-                else:
-                    # Subscription failed, mark as not subscribed
-                    self._subscribed = False
+            if self._check_connected_sock:
+                is_actually_connected = self._check_connected_sock()
+            elif self._check_connected_callable:
+                is_actually_connected = self._check_connected_callable()
             
             # check_msg() returns None but processes messages via callback
             # umqtt.robust will automatically reconnect if connection is lost
@@ -578,13 +695,16 @@ class MQTTHandler:
             # If check_msg succeeds, we're connected (robust may have reconnected during check_msg)
             self.connected = True
             
-            # After check_msg, check again if we need to re-subscribe
-            # (check_msg might have triggered a reconnection)
-            if self.connected and not self._subscribed:
+            # Performance optimization: Consolidate subscription check (only check once after check_msg)
+            # Re-subscribe if we're connected but not subscribed (robust may have reconnected)
+            if (is_actually_connected or self.connected) and not self._subscribed:
                 if self.debug:
-                    print("Re-subscribing after check_msg (reconnection detected)...")
+                    print("Re-subscribing after reconnection detected...")
                 if self._subscribe_to_topics():
                     self._subscribed = True
+                else:
+                    # Subscription failed, mark as not subscribed
+                    self._subscribed = False
             
             return True
         except Exception as e:

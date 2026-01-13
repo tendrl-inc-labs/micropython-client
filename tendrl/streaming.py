@@ -370,6 +370,14 @@ def start_jpeg_stream(client_instance, capture_frame_func, target_fps=15,
                     print(f"Streaming duration ({stream_duration}s) elapsed, stopping...")
                 break
 
+            # Wait for network connection before attempting to stream
+            # This prevents wasted connection attempts when network isn't ready
+            if hasattr(client_instance, 'network') and not client_instance.network.is_connected():
+                if debug:
+                    print("Streaming: Waiting for network connection...")
+                await asyncio.sleep(1.0)  # Check every 1 second
+                continue
+
             # Wait for MQTT connection before streaming (ensures entity shows as online)
             # This is important so the server knows the client is online before streaming starts
             # Only wait if MQTT is enabled (mqtt is not None)
