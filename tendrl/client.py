@@ -743,14 +743,10 @@ class Client:
                 "or manually install tendrl/streaming.py"
             )
 
-        # Handle camera setup and default capture function
         if capture_frame_func is None:
-            # Try to use default camera capture if sensor module is available
             try:
                 import sensor
 
-                # Validate and map framesize parameter
-                # Default is QVGA, but allow None for backward compatibility
                 if framesize is None or framesize.upper() == "QVGA":
                     framesize = sensor.QVGA
                     framesize_name = "QVGA"
@@ -765,7 +761,6 @@ class Client:
                         f"Invalid framesize '{framesize}'. Must be 'QQVGA', 'QVGA', or 'VGA'"
                     )
 
-                # Setup camera with optimized static settings
                 if self.debug:
                     print(f"Setting up camera: {framesize_name}, JPEG, Quality={quality}")
                 sensor.reset()
@@ -774,7 +769,6 @@ class Client:
                 sensor.set_quality(quality)
                 sensor.skip_frames(time=1500)
 
-                # Create default capture function
                 def default_capture_frame():
                     img = sensor.snapshot()
                     return img.bytearray()
@@ -789,25 +783,14 @@ class Client:
                     "or ensure sensor module is available for default camera support."
                 )
 
-        # Streaming requires MQTT to show entity as online before streaming starts
-        # If MQTT failed to initialize, warn but allow streaming to continue
         if self.mqtt is None:
             if self.debug:
                 print("Warning: MQTT not available - streaming will continue but entity may not show as online")
 
-        # Ensure client is started and MQTT is connected before streaming
-        # This is required for online entity status that is set when MQTT connects
         if not self.client_enabled:
             if self.debug:
                 print("Client not started - attempting to start and connect...")
-            # Try to connect if not already connected
-            if self.mode == "async":
-                # In async mode, we need to ensure connection is established
-                # Check if we need to wait for connection
-                if not self.mqtt or not self.mqtt.connected:
-                    if self.debug:
             else:
-                # In sync mode, try to connect now
                 if not self._connect():
                     if self.debug:
                         print("Failed to connect - streaming will retry in stream loop")
@@ -826,16 +809,10 @@ class Client:
             self.debug
         )
 
-        # Automatically add to background tasks if in async mode
         if self.mode == "async":
-            # Call the coroutine function to get the actual coroutine/generator
             try:
                 stream_coro = stream_loop_func()
-                # In MicroPython, async functions might return generators instead of coroutines
-                # asyncio.create_task() can handle both in MicroPython
-                # Just try to create the task - it will work if it's awaitable
                 task = self.add_background_task(stream_coro)
-                # Store reference for stop control
                 self._streaming_task = task
                 return task
             except Exception as e:
@@ -848,8 +825,6 @@ class Client:
                         pass
                 return None
         else:
-            # In sync mode, we can't run async coroutines directly
-            # User would need to handle this differently or use async mode
             if self.debug:
                 print("Warning: Streaming requires async mode. Use Client(mode='async')")
             return None
@@ -865,7 +840,6 @@ class Client:
                 self._streaming_task.cancel()
                 if self.debug:
                     print("Streaming task cancelled")
-            # Remove from tasks list if it's there
             if self._streaming_task in self._tasks:
                 self._tasks.remove(self._streaming_task)
             self._streaming_task = None
@@ -900,8 +874,6 @@ class Client:
 
             if not self.client_enabled:
                 if not self._connect():
-                    # Connection failed - this is normal during initialization
-                    # Connection will be retried automatically
                     if self.debug:
                         print("Connection attempt failed (will retry)")
                     return None
@@ -910,7 +882,6 @@ class Client:
                 data = {"data": str(data)}
 
             if self.managed:
-                # Use make_message to ensure consistent timestamp generation
                 message = make_message(
                     data, "publish", tags=tags, entity=entity
                 )
@@ -1153,7 +1124,6 @@ class Client:
         jti = self.network.connect()
         if jti:
             try:
-                # NTP sync happens in network.connect(), so mark as synced
                 if not self._ntp_synced:
                     self._ntp_synced = True
                     self._update_queued_timestamps()

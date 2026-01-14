@@ -117,7 +117,7 @@ class MQTTHandler:
                         "-2" in str(http_err) or  # ENOENT - DNS resolution failed
                         "ENOENT" in str(http_err)
                     )
-                    
+
                     if attempt < max_retries - 1 and is_retryable:
                         # Retryable error - wait and retry silently (only log in debug mode)
                         if self.debug:
