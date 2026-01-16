@@ -351,8 +351,6 @@ class Client:
                         msg = make_message(free(bytes_only=True), "heartbeat")
                         success, is_connection_error = self.mqtt.publish_message(msg)
                         if not success and is_connection_error:
-                            if self.debug:
-                                print("Heartbeat connection error - disabling client")
                             self.client_enabled, self.mqtt.connected = False, False
                         elif not success:
                             if self.debug:
@@ -387,8 +385,6 @@ class Client:
                                     print("Batch send failed")
                             else:
                                 did_work = True
-                                if self.debug:
-                                    print(f"Batch sent successfully: {len(batch)} messages")
                         except Exception as batch_err:
                             if self.debug:
                                 print(f"Error sending batch: {batch_err}")
@@ -549,8 +545,6 @@ class Client:
                 success, is_connection_error = self.mqtt.publish_message(msg)
 
                 if not success and is_connection_error:
-                    if self.debug:
-                        print("Heartbeat connection error - disabling client")
                     self.client_enabled, self.mqtt.connected = False, False
                 elif not success:
                     if self.debug:

@@ -107,8 +107,6 @@ class QueueManager:
                 if msg is not None:
                     batch.append(msg)
             if batch:
-                if self.debug:
-                    print(f"Collected {len(batch)} messages, queue size: {len(self.queue)}")
                 gc.collect()
                 return batch
             return None
